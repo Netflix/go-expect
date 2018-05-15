@@ -1,5 +1,9 @@
 # go-expect
 
+[![Build Status](https://travis-ci.org/Netflix-Skunkworks/go-expect.svg?branch=master)](https://travis-ci.org/Netflix-Skunkworks/go-expect)
+[![GoDoc](https://godoc.org/github.com/Netflix-Skunkworks/go-expect?status.svg)](https://godoc.org/github.com/Netflix-Skunkworks/go-expect)
+[![NetflixOSS Lifecycle](https://img.shields.io/osslifecycle/Netflix-Skunkworks/go-expect.svg)]()
+
 Package expect provides an expect-like interface to automate control of terminal or console based programs. It is unlike expect and other go expect packages in that it does not spawn or control process lifecycle. This package only interfaces with a stdin and stdout and controls the interaction through those files alone.
 
 ## Usage

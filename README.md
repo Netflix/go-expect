@@ -13,6 +13,7 @@ c, err := NewConsole()
 if err != nil {
   log.Fatal(err)
 }
+defer c.Close()
 
 cmd := exec.Command("prompt")
 cmd.Stdin = c.Stdin()
@@ -31,5 +32,4 @@ err = cmd.Run()
 if err != nil {
   log.Fatal(err)
 }
-c.Close()
 ```

@@ -24,6 +24,7 @@ func TestExpect(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error but got'%s'", err)
 	}
+	defer c.Close()
 
 	cmd := exec.Command("go", "run", "./cmd/prompt/main.go")
 	cmd.Stdin = c.Stdin()
@@ -42,7 +43,6 @@ func TestExpect(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error but got '%s'", err)
 	}
-	c.Close()
 }
 
 func TestExpectOutput(t *testing.T) {
@@ -50,6 +50,7 @@ func TestExpectOutput(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error but got'%s'", err)
 	}
+	defer c.Close()
 
 	cmd := exec.Command("go", "run", "./cmd/prompt/main.go")
 	cmd.Stdin = c.Stdin()
@@ -67,8 +68,6 @@ func TestExpectOutput(t *testing.T) {
 	if err == nil || err.Error() != expected {
 		t.Errorf("Expected error '%s' but got '%s' instead", expected, err)
 	}
-
-	c.Close()
 }
 
 func ExampleConsole() {
@@ -76,6 +75,7 @@ func ExampleConsole() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer c.Close()
 
 	cmd := exec.Command("prompt")
 	cmd.Stdin = c.Stdin()
@@ -94,5 +94,4 @@ func ExampleConsole() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	c.Close()
 }

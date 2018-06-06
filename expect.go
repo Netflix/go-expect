@@ -59,12 +59,12 @@ type ConsoleOpts struct {
 // a terminal or console based program. It parses a given stdin and stdout for
 // an expected string, and can send bytes to respond to a match.
 type Console struct {
-	opts       ConsoleOpts
-	pty        *os.File
-	tty        *os.File
-	pipeReader *os.File
-	pipeWriter *os.File
-	closers    []io.Closer
+	opts      ConsoleOpts
+	inReader  *os.File
+	inWriter  *os.File
+	outReader *os.File
+	outWriter *os.File
+	closers   []io.Closer
 }
 
 // NewConsole creates a new Console with the default options.
@@ -74,38 +74,44 @@ func NewConsole() (*Console, error) {
 
 // NewConsoleWithOpts creates a new Console with the given options.
 func NewConsoleWithOpts(opts ConsoleOpts) (*Console, error) {
-	pty, tty, err := pty.Open()
+	inPty, inTty, err := pty.Open()
 	if err != nil {
 		return nil, err
 	}
-	closers := append([]io.Closer{}, pty, tty)
+	closers := append([]io.Closer{}, inTty, inPty)
 
-	pipeReader, pipeWriter, err := os.Pipe()
+	r, w, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	closers = append(closers, pipeReader, pipeWriter)
+	closers = append(closers, w, r)
+
+	outPty, outTty, err := WrapPty(w)
+	if err != nil {
+		return nil, err
+	}
+	closers = append(closers, outTty, outPty)
 
 	return &Console{
-		opts:       opts,
-		pty:        pty,
-		tty:        tty,
-		pipeReader: pipeReader,
-		pipeWriter: pipeWriter,
-		closers:    closers,
+		opts:      opts,
+		inWriter:  inPty,
+		inReader:  inTty,
+		outWriter: outTty,
+		outReader: r,
+		closers:   closers,
 	}, nil
 }
 
-// Stdin returns a file that the Console writes to. Typically this is the
+// Stdin returns a file that Console writes stdin to. Typically this is the
 // program's stdin.
 func (c *Console) Stdin() *os.File {
-	return c.tty
+	return c.inReader
 }
 
-// Stdout returns a file that the Console reads from. Typically this is the
+// Stdout returns a file that Console reads stdout from. Typically this is the
 // program's stdout.
 func (c *Console) Stdout() *os.File {
-	return c.pipeWriter
+	return c.outWriter
 }
 
 // Close closes the Console's tty, pty and pipe. Calling Close will unblock
@@ -128,10 +134,10 @@ func (c *Console) Expect(s string) (string, error) {
 
 	var content string
 	for {
-		c.pipeReader.SetReadDeadline(time.Now().Add(c.opts.ReadDeadline))
+		c.outReader.SetReadDeadline(time.Now().Add(c.opts.ReadDeadline))
 
 		p := make([]byte, 4)
-		n, err := c.pipeReader.Read(p)
+		n, err := c.outReader.Read(p)
 		if err != nil {
 			if !os.IsTimeout(err) {
 				return "", err
@@ -156,20 +162,34 @@ func (c *Console) Expect(s string) (string, error) {
 // ExpectEOF blocks until an EOF is read or an error occurs. It returns the
 // number of bytes copied and the first error encountered, if any.
 func (c *Console) ExpectEOF() (int64, error) {
-	err := c.pipeReader.SetReadDeadline(time.Time{})
+	err := c.outReader.SetReadDeadline(time.Time{})
 	if err != nil {
 		return 0, err
 	}
 
-	return io.Copy(c.opts.Stdout, c.pipeReader)
+	return io.Copy(c.opts.Stdout, c.outReader)
 }
 
 // Send writes the given string to the Console's Stdin.
 func (c *Console) Send(s string) (int, error) {
-	return c.pty.WriteString(s)
+	return c.inWriter.WriteString(s)
 }
 
 // SendLine writes the given string with a newline to the Console's Stdin.
 func (c *Console) SendLine(s string) (int, error) {
 	return c.Send(fmt.Sprintf("%s\n", s))
+}
+
+// WrapPty returns a pty that pipes bytes written to w.
+func WrapPty(w io.Writer) (f *os.File, tty *os.File, err error) {
+	f, tty, err = pty.Open()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	go func() {
+		io.Copy(w, f)
+	}()
+
+	return f, tty, nil
 }

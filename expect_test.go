@@ -14,6 +14,7 @@
 package expect
 
 import (
+	"io/ioutil"
 	"log"
 	"os/exec"
 	"testing"
@@ -71,6 +72,44 @@ func TestExpectOutput(t *testing.T) {
 	err = cmd.Run()
 	if err == nil || err.Error() != expected {
 		t.Errorf("Expected error '%s' but got '%s' instead", expected, err)
+	}
+}
+
+func TestEditor(t *testing.T) {
+	c, err := NewConsole()
+	if err != nil {
+		t.Errorf("Expected no error but got '%s'", err)
+	}
+	defer c.Close()
+
+	file, err := ioutil.TempFile("", "")
+	if err != nil {
+		t.Errorf("Expected no error but got '%s'", err)
+	}
+
+	cmd := exec.Command("vi", file.Name())
+	cmd.Stdin = c.Stdin()
+	cmd.Stdout = c.Stdout()
+	cmd.Stderr = c.Stdout()
+
+	go func() {
+		c.Send("iHello world\x1b")
+		c.SendLine(":w")
+		c.SendLine(":q!")
+		c.ExpectEOF()
+	}()
+
+	err = cmd.Run()
+	if err != nil {
+		t.Errorf("Expected no error but got '%s'", err)
+	}
+
+	data, err := ioutil.ReadFile(file.Name())
+	if err != nil {
+		t.Errorf("Expected no error but got '%s'", err)
+	}
+	if string(data) != "Hello world\n" {
+		t.Errorf("Expected '%s' to equal '%s'", string(data), "Hello world\n")
 	}
 }
 

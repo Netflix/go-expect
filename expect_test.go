@@ -20,7 +20,9 @@ import (
 )
 
 func TestExpect(t *testing.T) {
-	c, err := NewConsole()
+	t.Parallel()
+
+	c, err := NewTestConsole(t)
 	if err != nil {
 		t.Errorf("Expected no error but got'%s'", err)
 	}
@@ -46,7 +48,9 @@ func TestExpect(t *testing.T) {
 }
 
 func TestExpectOutput(t *testing.T) {
-	c, err := NewConsole()
+	t.Parallel()
+
+	c, err := NewTestConsole(t)
 	if err != nil {
 		t.Errorf("Expected no error but got'%s'", err)
 	}

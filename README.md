@@ -9,27 +9,36 @@ Package expect provides an expect-like interface to automate control of terminal
 ## Usage
 
 ```go
-c, err := NewConsole()
-if err != nil {
-  log.Fatal(err)
-}
-defer c.Close()
+package prompt
 
-cmd := exec.Command("prompt")
-cmd.Stdin = c.Stdin()
-cmd.Stdout = c.Stdout()
-cmd.Stderr = c.Stdout()
+import (
+	"os/exec"
+	"testing"
 
-go func() {
-  c.Expect("What is 1+1?")
-  c.SendLine("2")
-  c.Expect("What is Netflix backwards?")
-  c.SendLine("xilfteN")
-  c.ExpectEOF()
-}()
+	"github.com/stretchr/testify/require"
+)
 
-err = cmd.Run()
-if err != nil {
-  log.Fatal(err)
+func TestPrompt(t *testing.T) {
+  t.Parallel()
+
+  c, err := expect.NewTestConsole(t)
+  require.Nil(t, err)
+  defer c.Close()
+
+  cmd := exec.Command("prompt")
+  cmd.Stdin = c.Stdin()
+  cmd.Stdout = c.Stdout()
+  cmd.Stderr = c.Stdout()
+
+  go func() {
+    c.Expect("What is 1+1?")
+    c.SendLine("2")
+    c.Expect("What is Netflix backwards?")
+    c.SendLine("xilfteN")
+    c.ExpectEOF()
+  }()
+
+  err = cmd.Run()
+  require.Nil(t, err)
 }
 ```

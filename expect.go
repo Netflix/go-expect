@@ -13,45 +13,26 @@
 // limitations under the License.
 
 // Package expect provides an expect-like interface to automate control of
-// terminal or console based programs. It is unlike expect and other go
-// expect packages in that it does not spawn or control process lifecycle.
-// This package only interfaces with a stdin and stdout and controls the
-// interaction through those files alone.
+// applications. It is unlike expect in that it does not spawn or manage
+// process lifecycle. This package only focuses on expecting output and sending
+// input through it's psuedoterminal.
 package expect
 
 import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"strings"
 
 	"github.com/kr/pty"
 )
 
-var (
-	// DefaultConsoleOpts is the default configuration for a Console.
-	DefaultConsoleOpts = ConsoleOpts{
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-	}
-)
-
-// ConsoleOpts defines the configuration for a Console.
-type ConsoleOpts struct {
-	// Stdin is a file that Console will multiplex into the stdin of the program.
-	// For example, an user can interact with a password prompt while other
-	// prompts are handled by the Console.
-	Stdin io.Reader
-
-	// Stdout is a file that Console will write the program output to. It is
-	// optional but useful to be in the test output.
-	Stdout io.Writer
-}
-
-// Console is a controller for interactive applications, allowing automation of
-// a terminal or console based program. It parses a given stdin and stdout for
-// an expected string, and can send bytes to respond to a match.
+// Console is an interface to automate input and output for interactive
+// applications. Console can block until a specified output is received and send
+// input back on it's tty. Console can also multiplex other sources of input
+// and multiplex its output to other writers.
 type Console struct {
 	opts    ConsoleOpts
 	ptm     *os.File
@@ -59,56 +40,100 @@ type Console struct {
 	closers []io.Closer
 }
 
-// NewConsole creates a new Console with the default options.
-func NewConsole() (*Console, error) {
-	return NewConsoleWithOpts(DefaultConsoleOpts)
+// ConsoleOpt allows setting Console options.
+type ConsoleOpt func(*ConsoleOpts) error
+
+// ConsoleOpts provides additional options on creating a Console.
+type ConsoleOpts struct {
+	Stdins  []io.Reader
+	Stdouts []io.Writer
 }
 
-// NewConsoleWithOpts creates a new Console with the given options.
-func NewConsoleWithOpts(opts ConsoleOpts) (*Console, error) {
+// WithStdout adds writers that Console duplicates writes to, similar to the
+// Unix tee(1) command.
+//
+// Each write is written to each listed writer, one at a time. Console is the
+// last writer, writing to it's internal buffer for matching expects.
+// If a listed writer returns an error, that overall write operation stops and
+// returns the error; it does not continue down the list.
+func WithStdout(writers ...io.Writer) ConsoleOpt {
+	return func(opts *ConsoleOpts) error {
+		opts.Stdouts = append(opts.Stdouts, writers...)
+		return nil
+	}
+}
+
+// WithStdin adds readers that bytes read are written to Console's  tty. If a
+// listed reader returns an error, that reader will not be continued to read.
+func WithStdin(readers ...io.Reader) ConsoleOpt {
+	return func(opts *ConsoleOpts) error {
+		opts.Stdins = append(opts.Stdins, readers...)
+		return nil
+	}
+}
+
+// NewConsole creates a new Console with the given options.
+func NewConsole(opts ...ConsoleOpt) (*Console, error) {
+	var options ConsoleOpts
+	for _, opt := range opts {
+		if err := opt(&options); err != nil {
+			return nil, err
+		}
+	}
+
 	ptm, pts, err := pty.Open()
 	if err != nil {
 		return nil, err
 	}
 	closers := append([]io.Closer{}, pts, ptm)
 
+	for _, r := range options.Stdins {
+		go func(r io.Reader) {
+			for {
+				p := make([]byte, 1)
+				n, err := r.Read(p)
+				if err != nil {
+					return
+				}
+
+				_, err = ptm.Write(p[:n])
+				if err != nil {
+					return
+				}
+			}
+		}(r)
+	}
+
 	return &Console{
-		opts:    opts,
+		opts:    options,
 		ptm:     ptm,
 		pts:     pts,
 		closers: closers,
 	}, nil
 }
 
-// Stdin returns a file that Console writes stdin to. Typically this is the
-// program's stdin.
-func (c *Console) Stdin() *os.File {
+// Tty returns Console's pts (slave part of a pty). A pseudoterminal, or pty is
+// a pair of psuedo-devices, one of which, the slave, emulates a real text
+// terminal device.
+func (c *Console) Tty() *os.File {
 	return c.pts
 }
 
-// Stdout returns a file that Console reads stdout from. Typically this is the
-// program's stdout.
-func (c *Console) Stdout() *os.File {
-	return c.pts
-}
-
-// Close closes the Console's tty, pty and pipe. Calling Close will unblock
-// ExpectEOF.
+// Close closes Console's tty. Calling Close will unblock Expect and ExpectEOF.
 func (c *Console) Close() {
 	for _, fd := range c.closers {
 		fd.Close()
 	}
 }
 
-// Expect blocks until it finds the given string from the Console's Stdout
-// starting from when Expect was called, and returns the buffer containing the
-// match. No extra bytes are read once a match is found.
-//
-// Expect performs the string search whenever ConsoleOpts.ReadDeadline times
-// out before the next byte is read.
+// Expect reads from Console's tty until s is encountered and returns the
+// buffer read by Console. No extra bytes are read once a match is found, so if
+// a program isn't expecting input yet it will be blocked. Sends are queued up
+// so the next Expect will read the remaining bytes (i.e. rest of prompt) or
+// ExpectEOF if nothing else is expected.
 func (c *Console) Expect(s string) (string, error) {
 	buf := new(bytes.Buffer)
-	multi := io.MultiWriter(c.opts.Stdout, buf)
+	w := io.MultiWriter(append(c.opts.Stdouts, buf)...)
 
 	var content string
 	for {
@@ -118,7 +143,7 @@ func (c *Console) Expect(s string) (string, error) {
 			return "", err
 		}
 
-		_, err = multi.Write(p[:n])
+		_, err = w.Write(p[:n])
 		if err != nil {
 			return "", err
 		}
@@ -133,18 +158,24 @@ func (c *Console) Expect(s string) (string, error) {
 	return content, nil
 }
 
-// ExpectEOF blocks until an EOF is read or an error occurs. It returns the
-// number of bytes copied and the first error encountered, if any.
+// ExpectEOF reads out the Console's tty until EOF or an error occurs. If
+// Console has multiple stdouts, the bytes read from the tty are written to all
+// stdouts.
 func (c *Console) ExpectEOF() (int64, error) {
-	return io.Copy(c.opts.Stdout, c.ptm)
+	if len(c.opts.Stdouts) == 0 {
+		return io.Copy(ioutil.Discard, c.ptm)
+	}
+
+	w := io.MultiWriter(c.opts.Stdouts...)
+	return io.Copy(w, c.ptm)
 }
 
-// Send writes the given string to the Console's Stdin.
+// Send writes s to Console's tty.
 func (c *Console) Send(s string) (int, error) {
 	return c.ptm.WriteString(s)
 }
 
-// SendLine writes the given string with a newline to the Console's Stdin.
+// SendLine writes s to Console's tty with a trailing newline.
 func (c *Console) SendLine(s string) (int, error) {
 	return c.Send(fmt.Sprintf("%s\n", s))
 }

@@ -14,11 +14,54 @@
 package expect
 
 import (
+	"bufio"
+	"errors"
+	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
+	"os"
 	"os/exec"
+	"strings"
 	"testing"
+	"time"
 )
+
+var (
+	ErrWrongAnswer = errors.New("wrong answer")
+)
+
+type Survey struct {
+	Prompt string
+	Answer string
+}
+
+func Prompt(in io.Reader, out io.Writer) error {
+	reader := bufio.NewReader(in)
+
+	for _, survey := range []Survey{
+		{
+			"What is 1+1?", "2",
+		},
+		{
+			"What is Netflix backwards?", "xilfteN",
+		},
+	} {
+		fmt.Fprint(out, fmt.Sprintf("%s: ", survey.Prompt))
+		text, err := reader.ReadString('\n')
+		if err != nil {
+			return err
+		}
+
+		fmt.Fprint(out, text)
+		text = strings.TrimSpace(text)
+		if text != survey.Answer {
+			return ErrWrongAnswer
+		}
+	}
+
+	return nil
+}
 
 func TestExpect(t *testing.T) {
 	t.Parallel()
@@ -29,11 +72,6 @@ func TestExpect(t *testing.T) {
 	}
 	defer c.Close()
 
-	cmd := exec.Command("go", "run", "./cmd/prompt/main.go")
-	cmd.Stdin = c.Stdin()
-	cmd.Stdout = c.Stdout()
-	cmd.Stderr = c.Stdout()
-
 	go func() {
 		c.Expect("What is 1+1?")
 		c.SendLine("2")
@@ -42,7 +80,7 @@ func TestExpect(t *testing.T) {
 		c.ExpectEOF()
 	}()
 
-	err = cmd.Run()
+	err = Prompt(c.Tty(), c.Tty())
 	if err != nil {
 		t.Errorf("Expected no error but got '%s'", err)
 	}
@@ -57,21 +95,15 @@ func TestExpectOutput(t *testing.T) {
 	}
 	defer c.Close()
 
-	cmd := exec.Command("go", "run", "./cmd/prompt/main.go")
-	cmd.Stdin = c.Stdin()
-	cmd.Stdout = c.Stdout()
-	cmd.Stderr = c.Stdout()
-
 	go func() {
 		c.Expect("What is 1+1?")
 		c.SendLine("3")
 		c.ExpectEOF()
 	}()
 
-	expected := "exit status 1"
-	err = cmd.Run()
-	if err == nil || err.Error() != expected {
-		t.Errorf("Expected error '%s' but got '%s' instead", expected, err)
+	err = Prompt(c.Tty(), c.Tty())
+	if err == nil || err != ErrWrongAnswer {
+		t.Errorf("Expected error '%s' but got '%s' instead", ErrWrongAnswer, err)
 	}
 }
 
@@ -79,6 +111,7 @@ func TestEditor(t *testing.T) {
 	if _, err := exec.LookPath("vi"); err != nil {
 		t.Skip("vi not found in PATH")
 	}
+	t.Parallel()
 
 	c, err := NewConsole()
 	if err != nil {
@@ -92,14 +125,13 @@ func TestEditor(t *testing.T) {
 	}
 
 	cmd := exec.Command("vi", file.Name())
-	cmd.Stdin = c.Stdin()
-	cmd.Stdout = c.Stdout()
-	cmd.Stderr = c.Stdout()
+	cmd.Stdin = c.Tty()
+	cmd.Stdout = c.Tty()
+	cmd.Stderr = c.Tty()
 
 	go func() {
 		c.Send("iHello world\x1b")
-		c.SendLine(":w")
-		c.SendLine(":q!")
+		c.SendLine(":wq!")
 		c.ExpectEOF()
 	}()
 
@@ -118,26 +150,34 @@ func TestEditor(t *testing.T) {
 }
 
 func ExampleConsole() {
-	c, err := NewConsole()
+	c, err := NewConsole(WithStdout(os.Stdout))
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer c.Close()
 
-	cmd := exec.Command("prompt")
-	cmd.Stdin = c.Stdin()
-	cmd.Stdout = c.Stdout()
-	cmd.Stderr = c.Stdout()
+	cmd := exec.Command("vi")
+	cmd.Stdin = c.Tty()
+	cmd.Stdout = c.Tty()
+	cmd.Stderr = c.Tty()
 
 	go func() {
-		c.Expect("What is 1+1?")
-		c.SendLine("2")
-		c.Expect("What is Netflix backwards?")
-		c.SendLine("xilfteN")
 		c.ExpectEOF()
 	}()
 
-	err = cmd.Run()
+	err = cmd.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	time.Sleep(time.Second)
+	c.Send("iHello world\x1b")
+	time.Sleep(time.Second)
+	c.Send("dd")
+	time.Sleep(time.Second)
+	c.SendLine(":q!")
+
+	err = cmd.Wait()
 	if err != nil {
 		log.Fatal(err)
 	}

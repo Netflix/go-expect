@@ -4,41 +4,53 @@
 [![GoDoc](https://godoc.org/github.com/Netflix/go-expect?status.svg)](https://godoc.org/github.com/Netflix/go-expect)
 [![NetflixOSS Lifecycle](https://img.shields.io/osslifecycle/Netflix/go-expect.svg)]()
 
-Package expect provides an expect-like interface to automate control of terminal or console based programs. It is unlike expect and other go expect packages in that it does not spawn or control process lifecycle. This package only interfaces with a stdin and stdout and controls the interaction through those files alone.
+Package expect provides an expect-like interface to automate control of applications. It is unlike expect in that it does not spawn or manage process lifecycle. This package only focuses on expecting output and sending input through it's psuedoterminal.
 
 ## Usage
 
 ```go
-package prompt
+package main
 
 import (
+	"log"
+	"os"
 	"os/exec"
-	"testing"
+	"time"
 
-	"github.com/stretchr/testify/require"
+	expect "github.com/Netflix/go-expect"
 )
 
-func TestPrompt(t *testing.T) {
-  t.Parallel()
+func main() {
+	c, err := expect.NewConsole(expect.WithStdout(os.Stdout))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer c.Close()
 
-  c, err := expect.NewTestConsole(t)
-  require.Nil(t, err)
-  defer c.Close()
+	cmd := exec.Command("vi")
+	cmd.Stdin = c.Tty()
+	cmd.Stdout = c.Tty()
+	cmd.Stderr = c.Tty()
 
-  cmd := exec.Command("prompt")
-  cmd.Stdin = c.Stdin()
-  cmd.Stdout = c.Stdout()
-  cmd.Stderr = c.Stdout()
+	go func() {
+		c.ExpectEOF()
+	}()
 
-  go func() {
-    c.Expect("What is 1+1?")
-    c.SendLine("2")
-    c.Expect("What is Netflix backwards?")
-    c.SendLine("xilfteN")
-    c.ExpectEOF()
-  }()
+	err = cmd.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-  err = cmd.Run()
-  require.Nil(t, err)
+	time.Sleep(time.Second)
+	c.Send("iHello world\x1b")
+	time.Sleep(time.Second)
+	c.Send("dd")
+	time.Sleep(time.Second)
+	c.SendLine(":q!")
+
+	err = cmd.Wait()
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 ```

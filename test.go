@@ -14,9 +14,7 @@ func NewTestConsole(t *testing.T) (*Console, error) {
 		return nil, err
 	}
 
-	consoleOpts := DefaultConsoleOpts
-	consoleOpts.Stdout = tf
-	return NewConsoleWithOpts(consoleOpts)
+	return NewConsole(WithStdout(tf))
 }
 
 // NewTestFile returns a File where bytes written to the file are logged by

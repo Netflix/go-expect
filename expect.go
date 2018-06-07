@@ -25,7 +25,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/kr/pty"
 )
@@ -33,18 +32,13 @@ import (
 var (
 	// DefaultConsoleOpts is the default configuration for a Console.
 	DefaultConsoleOpts = ConsoleOpts{
-		ReadDeadline: 10 * time.Millisecond,
-		Stdin:        os.Stdin,
-		Stdout:       os.Stdout,
+		Stdin:  os.Stdin,
+		Stdout: os.Stdout,
 	}
 )
 
 // ConsoleOpts defines the configuration for a Console.
 type ConsoleOpts struct {
-	// ReadDeadline is the timeout before attempting to search for the expected
-	// term. If the expected term isn't found, the console will continue reading.
-	ReadDeadline time.Duration
-
 	// Stdin is a file that Console will multiplex into the stdin of the program.
 	// For example, an user can interact with a password prompt while other
 	// prompts are handled by the Console.
@@ -59,12 +53,10 @@ type ConsoleOpts struct {
 // a terminal or console based program. It parses a given stdin and stdout for
 // an expected string, and can send bytes to respond to a match.
 type Console struct {
-	opts      ConsoleOpts
-	inReader  *os.File
-	inWriter  *os.File
-	outReader *os.File
-	outWriter *os.File
-	closers   []io.Closer
+	opts    ConsoleOpts
+	ptm     *os.File
+	pts     *os.File
+	closers []io.Closer
 }
 
 // NewConsole creates a new Console with the default options.
@@ -74,44 +66,30 @@ func NewConsole() (*Console, error) {
 
 // NewConsoleWithOpts creates a new Console with the given options.
 func NewConsoleWithOpts(opts ConsoleOpts) (*Console, error) {
-	inPty, inTty, err := pty.Open()
+	ptm, pts, err := pty.Open()
 	if err != nil {
 		return nil, err
 	}
-	closers := append([]io.Closer{}, inTty, inPty)
-
-	r, w, err := os.Pipe()
-	if err != nil {
-		return nil, err
-	}
-	closers = append(closers, w, r)
-
-	outPty, outTty, err := WrapPty(w)
-	if err != nil {
-		return nil, err
-	}
-	closers = append(closers, outTty, outPty)
+	closers := append([]io.Closer{}, pts, ptm)
 
 	return &Console{
-		opts:      opts,
-		inWriter:  inPty,
-		inReader:  inTty,
-		outWriter: outTty,
-		outReader: r,
-		closers:   closers,
+		opts:    opts,
+		ptm:     ptm,
+		pts:     pts,
+		closers: closers,
 	}, nil
 }
 
 // Stdin returns a file that Console writes stdin to. Typically this is the
 // program's stdin.
 func (c *Console) Stdin() *os.File {
-	return c.inReader
+	return c.pts
 }
 
 // Stdout returns a file that Console reads stdout from. Typically this is the
 // program's stdout.
 func (c *Console) Stdout() *os.File {
-	return c.outWriter
+	return c.pts
 }
 
 // Close closes the Console's tty, pty and pipe. Calling Close will unblock
@@ -134,25 +112,21 @@ func (c *Console) Expect(s string) (string, error) {
 
 	var content string
 	for {
-		c.outReader.SetReadDeadline(time.Now().Add(c.opts.ReadDeadline))
-
-		p := make([]byte, 4)
-		n, err := c.outReader.Read(p)
+		p := make([]byte, 1)
+		n, err := c.ptm.Read(p)
 		if err != nil {
-			if !os.IsTimeout(err) {
-				return "", err
-			}
-
-			content = buf.String()
-			if strings.Contains(content, s) {
-				break
-			}
-			continue
+			return "", err
 		}
 
 		_, err = multi.Write(p[:n])
 		if err != nil {
 			return "", err
+		}
+
+		content = buf.String()
+		// Replace with KMP table.
+		if strings.Contains(content, s) {
+			break
 		}
 	}
 
@@ -162,34 +136,15 @@ func (c *Console) Expect(s string) (string, error) {
 // ExpectEOF blocks until an EOF is read or an error occurs. It returns the
 // number of bytes copied and the first error encountered, if any.
 func (c *Console) ExpectEOF() (int64, error) {
-	err := c.outReader.SetReadDeadline(time.Time{})
-	if err != nil {
-		return 0, err
-	}
-
-	return io.Copy(c.opts.Stdout, c.outReader)
+	return io.Copy(c.opts.Stdout, c.ptm)
 }
 
 // Send writes the given string to the Console's Stdin.
 func (c *Console) Send(s string) (int, error) {
-	return c.inWriter.WriteString(s)
+	return c.ptm.WriteString(s)
 }
 
 // SendLine writes the given string with a newline to the Console's Stdin.
 func (c *Console) SendLine(s string) (int, error) {
 	return c.Send(fmt.Sprintf("%s\n", s))
-}
-
-// WrapPty returns a pty that pipes bytes written to w.
-func WrapPty(w io.Writer) (f *os.File, tty *os.File, err error) {
-	f, tty, err = pty.Open()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	go func() {
-		io.Copy(w, f)
-	}()
-
-	return f, tty, nil
 }

@@ -76,6 +76,10 @@ func TestExpectOutput(t *testing.T) {
 }
 
 func TestEditor(t *testing.T) {
+	if _, err := exec.LookPath("vi"); err != nil {
+		t.Skip("vi not found in PATH")
+	}
+
 	c, err := NewConsole()
 	if err != nil {
 		t.Errorf("Expected no error but got '%s'", err)

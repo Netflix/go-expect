@@ -87,29 +87,20 @@ func NewConsole(opts ...ConsoleOpt) (*Console, error) {
 	}
 	closers := append([]io.Closer{}, pts, ptm)
 
-	for _, r := range options.Stdins {
-		go func(r io.Reader) {
-			for {
-				p := make([]byte, 1)
-				n, err := r.Read(p)
-				if err != nil {
-					return
-				}
-
-				_, err = ptm.Write(p[:n])
-				if err != nil {
-					return
-				}
-			}
-		}(r)
-	}
-
-	return &Console{
+	c := &Console{
 		opts:    options,
 		ptm:     ptm,
 		pts:     pts,
 		closers: closers,
-	}, nil
+	}
+
+	for _, r := range options.Stdins {
+		go func(r io.Reader) {
+			io.Copy(c, r)
+		}(r)
+	}
+
+	return c, nil
 }
 
 // Tty returns Console's pts (slave part of a pty). A pseudoterminal, or pty is
@@ -170,12 +161,17 @@ func (c *Console) ExpectEOF() (int64, error) {
 	return io.Copy(w, c.ptm)
 }
 
-// Send writes s to Console's tty.
+// Write writes bytes b to Console's tty.
+func (c *Console) Write(b []byte) (int, error) {
+	return c.ptm.Write(b)
+}
+
+// Send writes string s to Console's tty.
 func (c *Console) Send(s string) (int, error) {
 	return c.ptm.WriteString(s)
 }
 
-// SendLine writes s to Console's tty with a trailing newline.
+// SendLine writes string s to Console's tty with a trailing newline.
 func (c *Console) SendLine(s string) (int, error) {
 	return c.Send(fmt.Sprintf("%s\n", s))
 }

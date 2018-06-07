@@ -8,13 +8,13 @@ import (
 
 // NewTestConsole multiplexes the application's stdout to go's testing logger,
 // so that outputs from parallel tests using t.Parallel() is not interleaved.
-func NewTestConsole(t *testing.T) (*Console, error) {
+func NewTestConsole(t *testing.T, opts ...ConsoleOpt) (*Console, error) {
 	tf, err := NewTestFile(t)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewConsole(WithStdout(tf))
+	return NewConsole(append(opts, WithStdout(tf))...)
 }
 
 // NewTestFile returns a File where bytes written to the file are logged by

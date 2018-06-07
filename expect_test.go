@@ -24,7 +24,6 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
-	"time"
 )
 
 var (
@@ -107,6 +106,39 @@ func TestExpectOutput(t *testing.T) {
 	}
 }
 
+func TestConsoleChain(t *testing.T) {
+	t.Parallel()
+
+	c1, err := NewConsole()
+	if err != nil {
+		t.Errorf("Expected no error but got'%s'", err)
+	}
+	defer c1.Close()
+
+	go func() {
+		c1.Expect("What is Netflix backwards?")
+		c1.SendLine("xilfteN")
+		c1.ExpectEOF()
+	}()
+
+	c2, err := NewTestConsole(t, WithStdin(c1.Tty()), WithStdout(c1.Tty()))
+	if err != nil {
+		t.Errorf("Expected no error but got'%s'", err)
+	}
+	defer c2.Close()
+
+	go func() {
+		c2.Expect("What is 1+1?")
+		c2.SendLine("2")
+		c2.ExpectEOF()
+	}()
+
+	err = Prompt(c2.Tty(), c2.Tty())
+	if err != nil {
+		t.Errorf("Expected no error but got '%s'", err)
+	}
+}
+
 func TestEditor(t *testing.T) {
 	if _, err := exec.LookPath("vi"); err != nil {
 		t.Skip("vi not found in PATH")
@@ -149,36 +181,32 @@ func TestEditor(t *testing.T) {
 	}
 }
 
-func ExampleConsole() {
+func ExampleConsoleCat() {
 	c, err := NewConsole(WithStdout(os.Stdout))
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer c.Close()
 
-	cmd := exec.Command("vi")
+	cmd := exec.Command("cat")
 	cmd.Stdin = c.Tty()
 	cmd.Stdout = c.Tty()
 	cmd.Stderr = c.Tty()
-
-	go func() {
-		c.ExpectEOF()
-	}()
 
 	err = cmd.Start()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	time.Sleep(time.Second)
-	c.Send("iHello world\x1b")
-	time.Sleep(time.Second)
-	c.Send("dd")
-	time.Sleep(time.Second)
-	c.SendLine(":q!")
+	c.Send("Hello world")
+	c.Expect("Hello world")
+	c.Close()
+	c.ExpectEOF()
 
 	err = cmd.Wait()
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// Output: Hello world
 }

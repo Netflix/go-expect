@@ -111,10 +111,11 @@ func (c *Console) Tty() *os.File {
 }
 
 // Close closes Console's tty. Calling Close will unblock Expect and ExpectEOF.
-func (c *Console) Close() {
+func (c *Console) Close() error {
 	for _, fd := range c.closers {
 		fd.Close()
 	}
+	return nil
 }
 
 // Expect reads from Console's tty until s is encountered and returns the
@@ -159,6 +160,11 @@ func (c *Console) ExpectEOF() (int64, error) {
 
 	w := io.MultiWriter(c.opts.Stdouts...)
 	return io.Copy(w, c.ptm)
+}
+
+// Read reads bytes b from Console's tty.
+func (c *Console) Read(b []byte) (int, error) {
+	return c.ptm.Read(b)
 }
 
 // Write writes bytes b to Console's tty.

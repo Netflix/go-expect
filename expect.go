@@ -20,111 +20,33 @@ package expect
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"strings"
-
-	"github.com/kr/pty"
+	"time"
 )
 
-// Console is an interface to automate input and output for interactive
-// applications. Console can block until a specified output is received and send
-// input back on it's tty. Console can also multiplex other sources of input
-// and multiplex its output to other writers.
-type Console struct {
-	opts    ConsoleOpts
-	ptm     *os.File
-	pts     *os.File
-	closers []io.Closer
+// ExpectOpt allows setting Expect options.
+type ExpectOpt func(*ExpectOpts) error
+
+// ExpectOpts provides additional options on Expect.
+type ExpectOpts struct {
+	Timeout time.Duration
 }
 
-// ConsoleOpt allows setting Console options.
-type ConsoleOpt func(*ConsoleOpts) error
-
-// ConsoleOpts provides additional options on creating a Console.
-type ConsoleOpts struct {
-	Stdins  []io.Reader
-	Stdouts []io.Writer
-	Closers []io.Closer
-}
-
-// WithStdout adds writers that Console duplicates writes to, similar to the
-// Unix tee(1) command.
+// WithTimeout sets the deadline for Expect.
+// A zero value for timouet means Read will not time out.
 //
-// Each write is written to each listed writer, one at a time. Console is the
-// last writer, writing to it's internal buffer for matching expects.
-// If a listed writer returns an error, that overall write operation stops and
-// returns the error; it does not continue down the list.
-func WithStdout(writers ...io.Writer) ConsoleOpt {
-	return func(opts *ConsoleOpts) error {
-		opts.Stdouts = append(opts.Stdouts, writers...)
+// An error returned after a timeout fails will implement the
+// Timeout method, and calling the Timeout method will return true.
+// The PathError and SyscallError types implement the Timeout method.
+// In general, call IsTimeout to test whether an error indicates a timeout.
+func WithTimeout(timeout time.Duration) ExpectOpt {
+	return func(opts *ExpectOpts) error {
+		opts.Timeout = timeout
 		return nil
 	}
-}
-
-// WithStdin adds readers that bytes read are written to Console's  tty. If a
-// listed reader returns an error, that reader will not be continued to read.
-func WithStdin(readers ...io.Reader) ConsoleOpt {
-	return func(opts *ConsoleOpts) error {
-		opts.Stdins = append(opts.Stdins, readers...)
-		return nil
-	}
-}
-
-// WithCloser adds closers that are closed in order when Console is closed.
-func WithCloser(closer ...io.Closer) ConsoleOpt {
-	return func(opts *ConsoleOpts) error {
-		opts.Closers = append(opts.Closers, closer...)
-		return nil
-	}
-}
-
-// NewConsole returns a new Console with the given options.
-func NewConsole(opts ...ConsoleOpt) (*Console, error) {
-	var options ConsoleOpts
-	for _, opt := range opts {
-		if err := opt(&options); err != nil {
-			return nil, err
-		}
-	}
-
-	ptm, pts, err := pty.Open()
-	if err != nil {
-		return nil, err
-	}
-	closers := append(options.Closers, pts, ptm)
-
-	c := &Console{
-		opts:    options,
-		ptm:     ptm,
-		pts:     pts,
-		closers: closers,
-	}
-
-	for _, r := range options.Stdins {
-		go func(r io.Reader) {
-			io.Copy(c, r)
-		}(r)
-	}
-
-	return c, nil
-}
-
-// Tty returns Console's pts (slave part of a pty). A pseudoterminal, or pty is
-// a pair of psuedo-devices, one of which, the slave, emulates a real text
-// terminal device.
-func (c *Console) Tty() *os.File {
-	return c.pts
-}
-
-// Close closes Console's tty. Calling Close will unblock Expect and ExpectEOF.
-func (c *Console) Close() error {
-	for _, fd := range c.closers {
-		fd.Close()
-	}
-	return nil
 }
 
 // Expect reads from Console's tty until s is encountered and returns the
@@ -132,14 +54,33 @@ func (c *Console) Close() error {
 // a program isn't expecting input yet it will be blocked. Sends are queued up
 // so the next Expect will read the remaining bytes (i.e. rest of prompt) or
 // ExpectEOF if nothing else is expected.
-func (c *Console) Expect(s string) (string, error) {
+func (c *Console) Expect(s string, opts ...ExpectOpt) (string, error) {
+	var options ExpectOpts
+	for _, opt := range opts {
+		if err := opt(&options); err != nil {
+			return "", err
+		}
+	}
+
+	var r io.ReadCloser
+	if options.Timeout == 0 {
+		r = c.ptm
+	} else {
+		var err error
+		r, err = readerWithDeadline(c.ptm, options.Timeout)
+		if err != nil {
+			return "", err
+		}
+		defer r.Close()
+	}
+
 	buf := new(bytes.Buffer)
 	w := io.MultiWriter(append(c.opts.Stdouts, buf)...)
 
 	var content string
 	for {
 		p := make([]byte, 1)
-		n, err := c.ptm.Read(p)
+		n, err := r.Read(p)
 		if err != nil {
 			return "", err
 		}
@@ -159,34 +100,51 @@ func (c *Console) Expect(s string) (string, error) {
 	return content, nil
 }
 
+func readerWithDeadline(r io.Reader, timeout time.Duration) (io.ReadCloser, error) {
+	rp, wp, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+
+	err = rp.SetReadDeadline(time.Now().Add(timeout))
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		io.Copy(wp, r)
+	}()
+
+	return rp, nil
+}
+
 // ExpectEOF reads out the Console's tty until EOF or an error occurs. If
 // Console has multiple stdouts, the bytes read from the tty are written to all
 // stdouts.
-func (c *Console) ExpectEOF() (int64, error) {
+func (c *Console) ExpectEOF(opts ...ExpectOpt) (int64, error) {
+	var options ExpectOpts
+	for _, opt := range opts {
+		if err := opt(&options); err != nil {
+			return 0, err
+		}
+	}
+
+	var r io.ReadCloser
+	if options.Timeout == 0 {
+		r = c.ptm
+	} else {
+		var err error
+		r, err = readerWithDeadline(c.ptm, options.Timeout)
+		if err != nil {
+			return 0, err
+		}
+		defer r.Close()
+	}
+
 	if len(c.opts.Stdouts) == 0 {
-		return io.Copy(ioutil.Discard, c.ptm)
+		return io.Copy(ioutil.Discard, r)
 	}
 
 	w := io.MultiWriter(c.opts.Stdouts...)
-	return io.Copy(w, c.ptm)
-}
-
-// Read reads bytes b from Console's tty.
-func (c *Console) Read(b []byte) (int, error) {
-	return c.ptm.Read(b)
-}
-
-// Write writes bytes b to Console's tty.
-func (c *Console) Write(b []byte) (int, error) {
-	return c.ptm.Write(b)
-}
-
-// Send writes string s to Console's tty.
-func (c *Console) Send(s string) (int, error) {
-	return c.ptm.WriteString(s)
-}
-
-// SendLine writes string s to Console's tty with a trailing newline.
-func (c *Console) SendLine(s string) (int, error) {
-	return c.Send(fmt.Sprintf("%s\n", s))
+	return io.Copy(w, r)
 }

@@ -47,6 +47,7 @@ type ConsoleOpt func(*ConsoleOpts) error
 type ConsoleOpts struct {
 	Stdins  []io.Reader
 	Stdouts []io.Writer
+	Closers []io.Closer
 }
 
 // WithStdout adds writers that Console duplicates writes to, similar to the
@@ -72,6 +73,14 @@ func WithStdin(readers ...io.Reader) ConsoleOpt {
 	}
 }
 
+// WithCloser adds closers that are closed in order when Console is closed.
+func WithCloser(closer ...io.Closer) ConsoleOpt {
+	return func(opts *ConsoleOpts) error {
+		opts.Closers = append(opts.Closers, closer...)
+		return nil
+	}
+}
+
 // NewConsole creates a new Console with the given options.
 func NewConsole(opts ...ConsoleOpt) (*Console, error) {
 	var options ConsoleOpts
@@ -85,7 +94,7 @@ func NewConsole(opts ...ConsoleOpt) (*Console, error) {
 	if err != nil {
 		return nil, err
 	}
-	closers := append([]io.Closer{}, pts, ptm)
+	closers := append(options.Closers, pts, ptm)
 
 	c := &Console{
 		opts:    options,

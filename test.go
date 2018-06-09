@@ -2,14 +2,14 @@ package expect
 
 import (
 	"bufio"
-	"os"
+	"io"
 	"testing"
 )
 
 // NewTestConsole multiplexes the application's stdout to go's testing logger,
 // so that outputs from parallel tests using t.Parallel() is not interleaved.
 func NewTestConsole(t *testing.T, opts ...ConsoleOpt) (*Console, error) {
-	tf, err := NewTestFile(t)
+	tf, err := NewTestWriter(t)
 	if err != nil {
 		return nil, err
 	}
@@ -17,14 +17,10 @@ func NewTestConsole(t *testing.T, opts ...ConsoleOpt) (*Console, error) {
 	return NewConsole(append(opts, WithStdout(tf))...)
 }
 
-// NewTestFile returns a File where bytes written to the file are logged by
-// go's testing logger. Bytes are flushed to the logger on line end.
-func NewTestFile(t *testing.T) (*os.File, error) {
-	r, w, err := os.Pipe()
-	if err != nil {
-		return nil, err
-	}
-
+// NewTestWriter returns a io.Writer where bytes written to the file are
+// logged by go's testing logger. Bytes are flushed to the logger on line end.
+func NewTestWriter(t *testing.T) (io.Writer, error) {
+	r, w := io.Pipe()
 	tw := testWriter{t}
 
 	go func() {

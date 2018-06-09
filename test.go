@@ -6,8 +6,9 @@ import (
 	"testing"
 )
 
-// NewTestConsole multiplexes the application's stdout to go's testing logger,
-// so that outputs from parallel tests using t.Parallel() is not interleaved.
+// NewTestConsole returns a new Console that multiplexes the application's
+// stdout to go's testing logger. Primarily so that outputs from parallel tests
+// using t.Parallel() is not interleaved.
 func NewTestConsole(t *testing.T, opts ...ConsoleOpt) (*Console, error) {
 	tf, err := NewTestWriter(t)
 	if err != nil {
@@ -17,7 +18,7 @@ func NewTestConsole(t *testing.T, opts ...ConsoleOpt) (*Console, error) {
 	return NewConsole(append(opts, WithStdout(tf))...)
 }
 
-// NewTestWriter returns a io.Writer where bytes written to the file are
+// NewTestWriter returns an io.Writer where bytes written to the file are
 // logged by go's testing logger. Bytes are flushed to the logger on line end.
 func NewTestWriter(t *testing.T) (io.Writer, error) {
 	r, w := io.Pipe()

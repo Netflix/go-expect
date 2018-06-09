@@ -81,7 +81,7 @@ func WithCloser(closer ...io.Closer) ConsoleOpt {
 	}
 }
 
-// NewConsole creates a new Console with the given options.
+// NewConsole returns a new Console with the given options.
 func NewConsole(opts ...ConsoleOpt) (*Console, error) {
 	var options ConsoleOpts
 	for _, opt := range opts {

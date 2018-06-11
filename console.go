@@ -14,9 +14,11 @@
 package expect
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
+	"unicode/utf8"
 
 	"github.com/kr/pty"
 )
@@ -26,10 +28,11 @@ import (
 // input back on it's tty. Console can also multiplex other sources of input
 // and multiplex its output to other writers.
 type Console struct {
-	opts    ConsoleOpts
-	ptm     *os.File
-	pts     *os.File
-	closers []io.Closer
+	opts       ConsoleOpts
+	ptm        *os.File
+	pts        *os.File
+	runeReader *bufio.Reader
+	closers    []io.Closer
 }
 
 // ConsoleOpt allows setting Console options.
@@ -89,10 +92,11 @@ func NewConsole(opts ...ConsoleOpt) (*Console, error) {
 	closers := append(options.Closers, pts, ptm)
 
 	c := &Console{
-		opts:    options,
-		ptm:     ptm,
-		pts:     pts,
-		closers: closers,
+		opts:       options,
+		ptm:        ptm,
+		pts:        pts,
+		runeReader: bufio.NewReaderSize(ptm, utf8.UTFMax),
+		closers:    closers,
 	}
 
 	for _, r := range options.Stdins {

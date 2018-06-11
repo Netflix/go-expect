@@ -19,12 +19,14 @@
 package expect
 
 import (
+	"bufio"
 	"bytes"
 	"io"
 	"io/ioutil"
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ExpectOpt allows setting Expect options.
@@ -62,32 +64,40 @@ func (c *Console) Expect(s string, opts ...ExpectOpt) (string, error) {
 		}
 	}
 
-	var r io.ReadCloser
+	var reader io.ReadCloser
 	if options.Timeout == 0 {
-		r = c.ptm
+		reader = c.ptm
 	} else {
 		var err error
-		r, err = readerWithDeadline(c.ptm, options.Timeout)
+		reader, err = readerWithDeadline(c.ptm, options.Timeout)
 		if err != nil {
 			return "", err
 		}
-		defer r.Close()
+		defer reader.Close()
 	}
 
 	buf := new(bytes.Buffer)
-	w := io.MultiWriter(append(c.opts.Stdouts, buf)...)
+	runeReader := bufio.NewReaderSize(reader, utf8.UTFMax)
+	writer := io.MultiWriter(append(c.opts.Stdouts, buf)...)
+	runeWriter := bufio.NewWriterSize(writer, utf8.UTFMax)
 
 	var content string
 	for {
-		p := make([]byte, 1)
-		n, err := r.Read(p)
+		content = buf.String()
+		r, _, err := runeReader.ReadRune()
 		if err != nil {
-			return "", err
+			return content, err
 		}
 
-		_, err = w.Write(p[:n])
+		_, err = runeWriter.WriteRune(r)
 		if err != nil {
-			return "", err
+			return content, err
+		}
+
+		// Immediately flush rune to the underlying writers.
+		err = runeWriter.Flush()
+		if err != nil {
+			return content, err
 		}
 
 		content = buf.String()

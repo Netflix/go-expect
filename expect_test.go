@@ -72,9 +72,9 @@ func TestExpect(t *testing.T) {
 	defer c.Close()
 
 	go func() {
-		c.Expect("What is 1+1?")
+		c.ExpectString("What is 1+1?")
 		c.SendLine("2")
-		c.Expect("What is Netflix backwards?")
+		c.ExpectString("What is Netflix backwards?")
 		c.SendLine("xilfteN")
 		c.ExpectEOF()
 	}()
@@ -95,7 +95,7 @@ func TestExpectOutput(t *testing.T) {
 	defer c.Close()
 
 	go func() {
-		c.Expect("What is 1+1?")
+		c.ExpectString("What is 1+1?")
 		c.SendLine("3")
 		c.ExpectEOF()
 	}()
@@ -116,7 +116,7 @@ func TestConsoleChain(t *testing.T) {
 	defer c1.Close()
 
 	go func() {
-		c1.Expect("What is Netflix backwards?")
+		c1.ExpectString("What is Netflix backwards?")
 		c1.SendLine("xilfteN")
 		c1.ExpectEOF()
 	}()
@@ -128,7 +128,7 @@ func TestConsoleChain(t *testing.T) {
 	defer c2.Close()
 
 	go func() {
-		c2.Expect("What is 1+1?")
+		c2.ExpectString("What is 1+1?")
 		c2.SendLine("2")
 		c2.ExpectEOF()
 	}()
@@ -199,7 +199,7 @@ func ExampleConsoleCat() {
 	}
 
 	c.Send("Hello world")
-	c.Expect("Hello world")
+	c.ExpectString("Hello world")
 	c.Close()
 	c.ExpectEOF()
 

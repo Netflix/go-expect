@@ -4,11 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"testing"
-
-	"github.com/kr/pty"
 )
 
 // NewTestConsole returns a new Console that multiplexes the application's
@@ -61,22 +58,16 @@ func (tw testWriter) Write(p []byte) (n int, err error) {
 }
 
 // FormatTestLog formats a multiline string by emulating newlines with spaces
-// appropriate for width of provided tty, and deleting empty lines from end of
-// the string.
+// appropriate for number of columns of the output tty, and deleting empty lines
+// from end of the string.
 //
 // Go's test logger adds two newlines for every newline when calling t.Log, so
 // we get around this by emulating newlines instead.
-func FormatTestLog(tty *os.File, out string) (string, error) {
+func FormatTestLog(out string, cols int) (string, error) {
 	lines := strings.Split(out, "\n")
 	if len(lines) < 2 {
 		return out, nil
 	}
-
-	_, cols, err := pty.Getsize(tty)
-	if err != nil {
-		return "", err
-	}
-	offset := cols - len(lines[0])
 
 	for i := len(lines) - 1; i >= 0; i-- {
 		stripped := strings.Replace(lines[i], " ", "", -1)
@@ -88,6 +79,7 @@ func FormatTestLog(tty *os.File, out string) (string, error) {
 	}
 
 	var newline []rune
+	offset := cols - len(lines[0])
 	for i := 0; i < offset; i++ {
 		newline = append(newline, ' ')
 	}

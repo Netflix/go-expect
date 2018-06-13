@@ -2,7 +2,6 @@ package expect
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -57,16 +56,12 @@ func (tw testWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// FormatTestLog formats a multiline string by emulating newlines with spaces
-// appropriate for offset from the width of output tty (tty width - vt width),
-// and deleting empty lines from end of the string.
-//
-// Go's test logger adds two newlines for every newline when calling t.Log, so
-// we get around this by emulating newlines instead.
-func FormatTestLog(out string, offset int) (string, error) {
+// StripTrailingEmptyLines returns a copy of s stripped of trailing lines that
+// consist of only space characters.
+func StripTrailingEmptyLines(out string) string {
 	lines := strings.Split(out, "\n")
 	if len(lines) < 2 {
-		return out, nil
+		return out
 	}
 
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -78,11 +73,5 @@ func FormatTestLog(out string, offset int) (string, error) {
 		}
 	}
 
-	var newline []rune
-	for i := 0; i < offset; i++ {
-		newline = append(newline, ' ')
-	}
-
-	out = strings.Join(lines, string(newline))
-	return fmt.Sprintf("\n%s", out), nil
+	return strings.Join(lines, "\n")
 }

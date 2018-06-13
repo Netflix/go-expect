@@ -58,12 +58,12 @@ func (tw testWriter) Write(p []byte) (n int, err error) {
 }
 
 // FormatTestLog formats a multiline string by emulating newlines with spaces
-// appropriate for number of columns of the output tty, and deleting empty lines
-// from end of the string.
+// appropriate for offset from the width of output tty (tty width - vt width),
+// and deleting empty lines from end of the string.
 //
 // Go's test logger adds two newlines for every newline when calling t.Log, so
 // we get around this by emulating newlines instead.
-func FormatTestLog(out string, cols int) (string, error) {
+func FormatTestLog(out string, offset int) (string, error) {
 	lines := strings.Split(out, "\n")
 	if len(lines) < 2 {
 		return out, nil
@@ -79,7 +79,6 @@ func FormatTestLog(out string, cols int) (string, error) {
 	}
 
 	var newline []rune
-	offset := cols - len(lines[0])
 	for i := 0; i < offset; i++ {
 		newline = append(newline, ' ')
 	}

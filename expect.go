@@ -50,7 +50,6 @@ func (c *Console) Expect(opts ...ExpectOpt) (string, error) {
 	writer := io.MultiWriter(append(c.opts.Stdouts, buf)...)
 	runeWriter := bufio.NewWriterSize(writer, utf8.UTFMax)
 
-	var content string
 	for {
 		r, _, err := c.runeReader.ReadRune()
 		if err != nil {
@@ -85,5 +84,5 @@ func (c *Console) Expect(opts ...ExpectOpt) (string, error) {
 		}
 	}
 
-	return content, nil
+	return buf.String(), nil
 }

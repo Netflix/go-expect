@@ -145,6 +145,12 @@ func (c *Console) Write(b []byte) (int, error) {
 	return c.ptm.Write(b)
 }
 
+// Fd returns Console's file descripting referencing the master part of its
+// pty.
+func (c *Console) Fd() uintptr {
+	return c.ptm.Fd()
+}
+
 // Close closes Console's tty. Calling Close will unblock Expect and ExpectEOF.
 func (c *Console) Close() error {
 	for _, fd := range c.closers {

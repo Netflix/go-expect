@@ -16,6 +16,7 @@ package expect
 
 import (
 	"bytes"
+	"io"
 	"regexp"
 	"strings"
 )
@@ -23,38 +24,127 @@ import (
 // ExpectOpt allows settings Expect options.
 type ExpectOpt func(*ExpectOpts) error
 
+// ConsoleCallback is a callback function to execute if a match is found for
+// the chained matcher.
+type ConsoleCallback func(buf *bytes.Buffer) error
+
+// Then returns an Expect condition to execute a callback if a match is found
+// for the chained matcher.
+func (eo ExpectOpt) Then(f ConsoleCallback) ExpectOpt {
+	return func(opts *ExpectOpts) error {
+		var options ExpectOpts
+		err := eo(&options)
+		if err != nil {
+			return err
+		}
+
+		for _, matcher := range options.Matchers {
+			opts.Matchers = append(opts.Matchers, &callbackMatcher{
+				f:       f,
+				matcher: matcher,
+			})
+		}
+		return nil
+	}
+}
+
 // ExpectOpts provides additional options on Expect.
 type ExpectOpts struct {
 	Matchers []Matcher
-	EOF      bool
+}
+
+// Match sequentially calls Match on all matchers in ExpectOpts and returns the
+// first matcher if a match exists, otherwise nil.
+func (eo ExpectOpts) Match(v interface{}) Matcher {
+	for _, matcher := range eo.Matchers {
+		if matcher.Match(v) {
+			return matcher
+		}
+	}
+	return nil
+}
+
+// CallbackMatcher is a matcher that provides a Callback function.
+type CallbackMatcher interface {
+	// Callback executes the matcher's callback with the content buffer at the
+	// time of match.
+	Callback(buf *bytes.Buffer) error
 }
 
 // Matcher provides an interface for finding a match in content read from
 // Console's tty.
 type Matcher interface {
-	Match(buf *bytes.Buffer) bool
+	// Match returns true iff a match is found.
+	Match(v interface{}) bool
 }
 
-// StringMatcher fulfills the Matcher interface to match strings against a given
+// callbackMatcher fulfills the Matcher and CallbackMatcher interface to match
+// using its embedded matcher and provide a callback function.
+type callbackMatcher struct {
+	f       ConsoleCallback
+	matcher Matcher
+}
+
+func (cm *callbackMatcher) Match(v interface{}) bool {
+	return cm.matcher.Match(v)
+}
+
+func (cm *callbackMatcher) Callback(buf *bytes.Buffer) error {
+	cb, ok := cm.matcher.(CallbackMatcher)
+	if ok {
+		err := cb.Callback(buf)
+		if err != nil {
+			return err
+		}
+	}
+	err := cm.f(buf)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// errorMatcher fulfills the Matcher interface to match a specific error.
+type errorMatcher struct {
+	err error
+}
+
+func (em *errorMatcher) Match(v interface{}) bool {
+	err, ok := v.(error)
+	if !ok {
+		return false
+	}
+	return err == em.err
+}
+
+// stringMatcher fulfills the Matcher interface to match strings against a given
 // bytes.Buffer.
-type StringMatcher struct {
+type stringMatcher struct {
 	str string
 }
 
-func (sm *StringMatcher) Match(buf *bytes.Buffer) bool {
+func (sm *stringMatcher) Match(v interface{}) bool {
+	buf, ok := v.(*bytes.Buffer)
+	if !ok {
+		return false
+	}
 	if strings.Contains(buf.String(), sm.str) {
 		return true
 	}
 	return false
 }
 
-// RegexpMatcher fulfills the Matcher interface to match Regexp against a given
+// regexpMatcher fulfills the Matcher interface to match Regexp against a given
 // bytes.Buffer.
-type RegexpMatcher struct {
+type regexpMatcher struct {
 	re *regexp.Regexp
 }
 
-func (rm *RegexpMatcher) Match(buf *bytes.Buffer) bool {
+func (rm *regexpMatcher) Match(v interface{}) bool {
+	buf, ok := v.(*bytes.Buffer)
+	if !ok {
+		return false
+	}
 	return rm.re.Match(buf.Bytes())
 }
 
@@ -63,7 +153,7 @@ func (rm *RegexpMatcher) Match(buf *bytes.Buffer) bool {
 func String(strs ...string) ExpectOpt {
 	return func(opts *ExpectOpts) error {
 		for _, str := range strs {
-			opts.Matchers = append(opts.Matchers, &StringMatcher{
+			opts.Matchers = append(opts.Matchers, &stringMatcher{
 				str: str,
 			})
 		}
@@ -76,7 +166,7 @@ func String(strs ...string) ExpectOpt {
 func Regexp(res ...*regexp.Regexp) ExpectOpt {
 	return func(opts *ExpectOpts) error {
 		for _, re := range res {
-			opts.Matchers = append(opts.Matchers, &RegexpMatcher{
+			opts.Matchers = append(opts.Matchers, &regexpMatcher{
 				re: re,
 			})
 		}
@@ -101,9 +191,21 @@ func RegexpPattern(ps ...string) ExpectOpt {
 	}
 }
 
+// Error adds an Expect condition to exit if reading from Console's tty returns
+// one of the provided errors.
+func Error(errs ...error) ExpectOpt {
+	return func(opts *ExpectOpts) error {
+		for _, err := range errs {
+			opts.Matchers = append(opts.Matchers, &errorMatcher{
+				err: err,
+			})
+		}
+		return nil
+	}
+}
+
 // EOF adds an Expect condition to exit if io.EOF is returned from reading
 // Console's tty.
 func EOF(opts *ExpectOpts) error {
-	opts.EOF = true
-	return nil
+	return Error(io.EOF)(opts)
 }

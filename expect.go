@@ -51,10 +51,12 @@ func (c *Console) Expect(opts ...ExpectOpt) (string, error) {
 	writer := io.MultiWriter(append(c.opts.Stdouts, buf)...)
 	runeWriter := bufio.NewWriterSize(writer, utf8.UTFMax)
 
+	var matcher Matcher
 	for {
 		r, _, err := c.runeReader.ReadRune()
 		if err != nil {
-			if options.EOF && err == io.EOF {
+			matcher = options.Match(err)
+			if matcher != nil {
 				break
 			}
 			return buf.String(), err
@@ -72,16 +74,19 @@ func (c *Console) Expect(opts ...ExpectOpt) (string, error) {
 			return buf.String(), err
 		}
 
-		matchFound := false
-		for _, matcher := range options.Matchers {
-			if matcher.Match(buf) {
-				matchFound = true
-				break
-			}
-		}
-
-		if matchFound {
+		matcher = options.Match(buf)
+		if matcher != nil {
 			break
+		}
+	}
+
+	if matcher != nil {
+		cb, ok := matcher.(CallbackMatcher)
+		if ok {
+			err := cb.Callback(buf)
+			if err != nil {
+				return buf.String(), err
+			}
 		}
 	}
 

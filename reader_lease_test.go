@@ -33,14 +33,13 @@ func TestReaderLease(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.title, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
-			r := rm.Reader(ctx)
 			tin, tout := io.Pipe()
 
 			var wg sync.WaitGroup
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				io.Copy(tout, r)
+				io.Copy(tout, rm.NewReader(ctx))
 			}()
 
 			wg.Add(1)

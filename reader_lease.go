@@ -51,9 +51,11 @@ func NewReaderLease(reader io.Reader) *ReaderLease {
 	return rm
 }
 
-// Reader returns a cancellable io.Reader for the underlying io.Reader. New
-// readers can be created after previous ones have been cancelled.
-func (rm *ReaderLease) Reader(ctx context.Context) io.Reader {
+// NewReader returns a cancellable io.Reader for the underlying io.Reader.
+// Readers can be cancelled without interrupting other Readers, and once
+// a reader is a cancelled it will not read anymore bytes from ReaderLease's
+// underlying io.Reader.
+func (rm *ReaderLease) NewReader(ctx context.Context) io.Reader {
 	return NewChanReader(ctx, rm.bytec)
 }
 

@@ -9,13 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestReaderMux(t *testing.T) {
+func TestReaderLease(t *testing.T) {
 	in, out := io.Pipe()
 	defer out.Close()
 	defer in.Close()
 
-	rm := NewReaderMux(in)
-	go rm.Mux()
+	rm := NewReaderLease(in)
 
 	tests := []struct {
 		title    string

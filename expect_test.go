@@ -63,6 +63,29 @@ func Prompt(in io.Reader, out io.Writer) error {
 	return nil
 }
 
+func TestExpectf(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewTestConsole(t)
+	if err != nil {
+		t.Errorf("Expected no error but got'%s'", err)
+	}
+	defer c.Close()
+
+	go func() {
+		c.Expectf("What is 1+%d?", 1)
+		c.SendLine("2")
+		c.Expectf("What is %s backwards?", "Netflix")
+		c.SendLine("xilfteN")
+		c.ExpectEOF()
+	}()
+
+	err = Prompt(c.Tty(), c.Tty())
+	if err != nil {
+		t.Errorf("Expected no error but got '%s'", err)
+	}
+}
+
 func TestExpect(t *testing.T) {
 	t.Parallel()
 

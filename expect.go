@@ -17,9 +17,16 @@ package expect
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"unicode/utf8"
 )
+
+// Expectf reads from the Console's tty until the provided formatted string
+// is read or an error occurs, and returns the buffer read by Console.
+func (c *Console) Expectf(format string, args ...interface{}) (string, error) {
+	return c.Expect(String(fmt.Sprintf(format, args...)))
+}
 
 // ExpectString reads from Console's tty until the provided string is read or
 // an error occurs, and returns the buffer read by Console.

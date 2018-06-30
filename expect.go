@@ -35,9 +35,9 @@ func (c *Console) ExpectString(s string) (string, error) {
 }
 
 // ExpectEOF reads from Console's tty until EOF or an error occurs, and returns
-// the buffer read by Console.
+// the buffer read by Console.  We also treat the PTSClosed error as an EOF.
 func (c *Console) ExpectEOF() (string, error) {
-	return c.Expect(EOF)
+	return c.Expect(EOF, PTSClosed)
 }
 
 // Expect reads from Console's tty until a condition specified from opts is
@@ -59,11 +59,21 @@ func (c *Console) Expect(opts ...ExpectOpt) (string, error) {
 	runeWriter := bufio.NewWriterSize(writer, utf8.UTFMax)
 
 	var matcher Matcher
+	var err error
+
+	defer func() {
+		for _, observer := range c.opts.ExpectObservers {
+			observer(matcher, buf.String(), err)
+		}
+	}()
+
 	for {
-		r, _, err := c.runeReader.ReadRune()
+		var r rune
+		r, _, err = c.runeReader.ReadRune()
 		if err != nil {
 			matcher = options.Match(err)
 			if matcher != nil {
+				err = nil
 				break
 			}
 			return buf.String(), err
@@ -90,12 +100,12 @@ func (c *Console) Expect(opts ...ExpectOpt) (string, error) {
 	if matcher != nil {
 		cb, ok := matcher.(CallbackMatcher)
 		if ok {
-			err := cb.Callback(buf)
+			err = cb.Callback(buf)
 			if err != nil {
 				return buf.String(), err
 			}
 		}
 	}
 
-	return buf.String(), nil
+	return buf.String(), err
 }

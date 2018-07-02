@@ -17,8 +17,10 @@ package expect
 import (
 	"bytes"
 	"io"
+	"os"
 	"regexp"
 	"strings"
+	"syscall"
 )
 
 // ExpectOpt allows settings Expect options.
@@ -76,6 +78,7 @@ type CallbackMatcher interface {
 type Matcher interface {
 	// Match returns true iff a match is found.
 	Match(v interface{}) bool
+	Criteria() interface{}
 }
 
 // callbackMatcher fulfills the Matcher and CallbackMatcher interface to match
@@ -87,6 +90,10 @@ type callbackMatcher struct {
 
 func (cm *callbackMatcher) Match(v interface{}) bool {
 	return cm.matcher.Match(v)
+}
+
+func (cm *callbackMatcher) Criteria() interface{} {
+	return cm.matcher.Criteria()
 }
 
 func (cm *callbackMatcher) Callback(buf *bytes.Buffer) error {
@@ -117,6 +124,27 @@ func (em *errorMatcher) Match(v interface{}) bool {
 	return err == em.err
 }
 
+func (em *errorMatcher) Criteria() interface{} {
+	return em.err
+}
+
+// pathErrorMatcher fulfills the Matcher interface to match a specific os.PathError.
+type pathErrorMatcher struct {
+	pathError os.PathError
+}
+
+func (em *pathErrorMatcher) Match(v interface{}) bool {
+	pathError, ok := v.(*os.PathError)
+	if !ok {
+		return false
+	}
+	return *pathError == em.pathError
+}
+
+func (em *pathErrorMatcher) Criteria() interface{} {
+	return em.pathError
+}
+
 // stringMatcher fulfills the Matcher interface to match strings against a given
 // bytes.Buffer.
 type stringMatcher struct {
@@ -134,6 +162,10 @@ func (sm *stringMatcher) Match(v interface{}) bool {
 	return false
 }
 
+func (sm *stringMatcher) Criteria() interface{} {
+	return sm.str
+}
+
 // regexpMatcher fulfills the Matcher interface to match Regexp against a given
 // bytes.Buffer.
 type regexpMatcher struct {
@@ -146,6 +178,10 @@ func (rm *regexpMatcher) Match(v interface{}) bool {
 		return false
 	}
 	return rm.re.Match(buf.Bytes())
+}
+
+func (rm *regexpMatcher) Criteria() interface{} {
+	return rm.re
 }
 
 // String adds an Expect condition to exit if the content read from Console's
@@ -208,4 +244,20 @@ func Error(errs ...error) ExpectOpt {
 // Console's tty.
 func EOF(opts *ExpectOpts) error {
 	return Error(io.EOF)(opts)
+}
+
+// PTSClosed adds an Expect condition to exit if we get an
+// "read /dev/ptmx: input/output error" error which can occur
+// on Linux while reading from the ptm after the pts is closed.
+// Further Reading:
+// https://github.com/kr/pty/issues/21#issuecomment-129381749
+func PTSClosed(opts *ExpectOpts) error {
+	opts.Matchers = append(opts.Matchers, &pathErrorMatcher{
+		pathError: os.PathError{
+			Op:   "read",
+			Path: "/dev/ptmx",
+			Err:  syscall.Errno(0x5),
+		},
+	})
+	return nil
 }

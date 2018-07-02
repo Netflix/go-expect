@@ -43,11 +43,27 @@ type ConsoleOpt func(*ConsoleOpts) error
 
 // ConsoleOpts provides additional options on creating a Console.
 type ConsoleOpts struct {
-	Logger  *log.Logger
-	Stdins  []io.Reader
-	Stdouts []io.Writer
-	Closers []io.Closer
+	Logger          *log.Logger
+	Stdins          []io.Reader
+	Stdouts         []io.Writer
+	Closers         []io.Closer
+	ExpectObservers []ExpectObserver
+	SendObservers   []SendObserver
 }
+
+// ExpectObserver provides an interface for a function callback that will
+// be called after each Expect operation.
+// matcher will be the Matcher that matched the buffer in buf. May be nil.
+// buf is the captured output that was matched against.
+// err is error that might have occured. May be nil.
+type ExpectObserver func(matcher Matcher, buf string, err error)
+
+// SendObserver provides an interface for a function callback that will
+// be called after each Send operation.
+// msg is the string that was sent.
+// num is the number of bytes actually sent.
+// err is the error that might have occured.  May be nil.
+type SendObserver func(msg string, num int, err error)
 
 // WithStdout adds writers that Console duplicates writes to, similar to the
 // Unix tee(1) command.
@@ -85,6 +101,22 @@ func WithCloser(closer ...io.Closer) ConsoleOpt {
 func WithLogger(logger *log.Logger) ConsoleOpt {
 	return func(opts *ConsoleOpts) error {
 		opts.Logger = logger
+		return nil
+	}
+}
+
+// WithExpectObserver adds an ExpectObserver to allow monitoring Expect operations.
+func WithExpectObserver(observers ...ExpectObserver) ConsoleOpt {
+	return func(opts *ConsoleOpts) error {
+		opts.ExpectObservers = append(opts.ExpectObservers, observers...)
+		return nil
+	}
+}
+
+// WithSendObserver adds a SendObserver to allow monitoring Send operations.
+func WithSendObserver(observers ...SendObserver) ConsoleOpt {
+	return func(opts *ConsoleOpts) error {
+		opts.SendObservers = append(opts.SendObservers, observers...)
 		return nil
 	}
 }
@@ -165,7 +197,11 @@ func (c *Console) Close() error {
 // Send writes string s to Console's tty.
 func (c *Console) Send(s string) (int, error) {
 	c.Logf("console send: %q", s)
-	return c.ptm.WriteString(s)
+	n, err := c.ptm.WriteString(s)
+	for _, observer := range c.opts.SendObservers {
+		observer(s, n, err)
+	}
+	return n, err
 }
 
 // SendLine writes string s to Console's tty with a trailing newline.

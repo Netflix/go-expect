@@ -23,7 +23,9 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -63,6 +65,38 @@ func Prompt(in io.Reader, out io.Writer) error {
 	return nil
 }
 
+func expectNoError(t *testing.T) ConsoleOpt {
+	return WithExpectObserver(
+		func(matcher Matcher, buf string, err error) {
+			if matcher == nil && err != nil {
+				t.Errorf("Error occured while matching %q: %s\n%s", buf, err, string(debug.Stack()))
+			} else if err != nil {
+				t.Errorf("Failed to find %v in %q: %s\n%s", matcher.Criteria(), buf, err, string(debug.Stack()))
+			}
+		},
+	)
+}
+
+func sendNoError(t *testing.T) ConsoleOpt {
+	return WithSendObserver(
+		func(msg string, n int, err error) {
+			if err != nil {
+				t.Errorf("Failed to send %q: %s\n%s", msg, err, string(debug.Stack()))
+			}
+			if len(msg) != n {
+				t.Errorf("Only sent %d of %d bytes for %q\n%s", n, len(msg), msg, string(debug.Stack()))
+			}
+		},
+	)
+}
+
+func testCloser(t *testing.T, closer io.Closer) {
+	if err := closer.Close(); err != nil {
+		t.Errorf("Close failed: %s", err)
+		debug.PrintStack()
+	}
+}
+
 func TestExpectf(t *testing.T) {
 	t.Parallel()
 
@@ -70,9 +104,12 @@ func TestExpectf(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error but got'%s'", err)
 	}
-	defer c.Close()
+	defer testCloser(t, c)
 
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		c.Expectf("What is 1+%d?", 1)
 		c.SendLine("2")
 		c.Expectf("What is %s backwards?", "Netflix")
@@ -84,18 +121,23 @@ func TestExpectf(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error but got '%s'", err)
 	}
+	testCloser(t, c.Tty())
+	wg.Wait()
 }
 
 func TestExpect(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewTestConsole(t)
+	c, err := NewTestConsole(t, expectNoError(t), sendNoError(t))
 	if err != nil {
 		t.Errorf("Expected no error but got'%s'", err)
 	}
-	defer c.Close()
+	defer testCloser(t, c)
 
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		c.ExpectString("What is 1+1?")
 		c.SendLine("2")
 		c.ExpectString("What is Netflix backwards?")
@@ -107,18 +149,24 @@ func TestExpect(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error but got '%s'", err)
 	}
+	// close the pts so we can expect EOF
+	testCloser(t, c.Tty())
+	wg.Wait()
 }
 
 func TestExpectOutput(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewTestConsole(t)
+	c, err := NewTestConsole(t, expectNoError(t), sendNoError(t))
 	if err != nil {
 		t.Errorf("Expected no error but got'%s'", err)
 	}
-	defer c.Close()
+	defer testCloser(t, c)
 
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		c.ExpectString("What is 1+1?")
 		c.SendLine("3")
 		c.ExpectEOF()
@@ -128,30 +176,38 @@ func TestExpectOutput(t *testing.T) {
 	if err == nil || err != ErrWrongAnswer {
 		t.Errorf("Expected error '%s' but got '%s' instead", ErrWrongAnswer, err)
 	}
+	testCloser(t, c.Tty())
+	wg.Wait()
 }
 
 func TestConsoleChain(t *testing.T) {
 	t.Parallel()
 
-	c1, err := NewConsole()
+	c1, err := NewConsole(expectNoError(t), sendNoError(t))
 	if err != nil {
 		t.Errorf("Expected no error but got'%s'", err)
 	}
-	defer c1.Close()
+	defer testCloser(t, c1)
 
+	var wg1 sync.WaitGroup
+	wg1.Add(1)
 	go func() {
+		defer wg1.Done()
 		c1.ExpectString("What is Netflix backwards?")
 		c1.SendLine("xilfteN")
 		c1.ExpectEOF()
 	}()
 
-	c2, err := NewTestConsole(t, WithStdin(c1.Tty()), WithStdout(c1.Tty()))
+	c2, err := NewTestConsole(t, WithStdin(c1.Tty()), WithStdout(c1.Tty()), expectNoError(t), sendNoError(t))
 	if err != nil {
 		t.Errorf("Expected no error but got'%s'", err)
 	}
-	defer c2.Close()
+	defer testCloser(t, c2)
 
+	var wg2 sync.WaitGroup
+	wg2.Add(1)
 	go func() {
+		defer wg2.Done()
 		c2.ExpectString("What is 1+1?")
 		c2.SendLine("2")
 		c2.ExpectEOF()
@@ -161,6 +217,12 @@ func TestConsoleChain(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error but got '%s'", err)
 	}
+
+	testCloser(t, c2.Tty())
+	wg2.Wait()
+
+	testCloser(t, c1.Tty())
+	wg1.Wait()
 }
 
 func TestEditor(t *testing.T) {
@@ -169,11 +231,11 @@ func TestEditor(t *testing.T) {
 	}
 	t.Parallel()
 
-	c, err := NewConsole()
+	c, err := NewConsole(expectNoError(t), sendNoError(t))
 	if err != nil {
 		t.Errorf("Expected no error but got '%s'", err)
 	}
-	defer c.Close()
+	defer testCloser(t, c)
 
 	file, err := ioutil.TempFile("", "")
 	if err != nil {
@@ -185,7 +247,10 @@ func TestEditor(t *testing.T) {
 	cmd.Stdout = c.Tty()
 	cmd.Stderr = c.Tty()
 
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		c.Send("iHello world\x1b")
 		c.SendLine(":wq!")
 		c.ExpectEOF()
@@ -196,6 +261,9 @@ func TestEditor(t *testing.T) {
 		t.Errorf("Expected no error but got '%s'", err)
 	}
 
+	testCloser(t, c.Tty())
+	wg.Wait()
+
 	data, err := ioutil.ReadFile(file.Name())
 	if err != nil {
 		t.Errorf("Expected no error but got '%s'", err)
@@ -205,14 +273,14 @@ func TestEditor(t *testing.T) {
 	}
 }
 
-func ExampleConsoleCat() {
+func ExampleConsole_echo() {
 	c, err := NewConsole(WithStdout(os.Stdout))
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer c.Close()
 
-	cmd := exec.Command("cat")
+	cmd := exec.Command("echo")
 	cmd.Stdin = c.Tty()
 	cmd.Stdout = c.Tty()
 	cmd.Stderr = c.Tty()
@@ -224,7 +292,7 @@ func ExampleConsoleCat() {
 
 	c.Send("Hello world")
 	c.ExpectString("Hello world")
-	c.Close()
+	c.Tty().Close()
 	c.ExpectEOF()
 
 	err = cmd.Wait()

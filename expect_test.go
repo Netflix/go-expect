@@ -302,3 +302,73 @@ func ExampleConsole_echo() {
 
 	// Output: Hello world
 }
+
+// maskFilter will just replace the `mask` byte with an `*` on all reads from
+// the io.Reader
+type maskFilter struct {
+	r    io.Reader
+	mask byte
+}
+
+func newMaskFilter(mask byte) ExpectFilter {
+	return func(r io.Reader) io.Reader {
+		return &maskFilter{
+			r:    r,
+			mask: mask,
+		}
+	}
+}
+
+func (mf *maskFilter) Read(p []byte) (int, error) {
+	n, err := mf.r.Read(p)
+	for i, _ := range p {
+		if p[i] == mf.mask {
+			p[i] = '*'
+		}
+	}
+	return n, err
+}
+
+func TestExpectFiltered(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewTestConsole(t,
+		expectNoError(t),
+		sendNoError(t),
+		// replace 'x' or '1' with '*'
+		WithExpectFilter(newMaskFilter('x'), newMaskFilter('1')),
+		// verify we do not see any 'x' or '1' in the expect buffer
+		WithExpectObserver(
+			func(_ Matcher, buf string, _ error) {
+				for _, maskChar := range []byte("x1") {
+					if strings.Contains(buf, string(maskChar)) {
+						t.Errorf("found Mask character [%q] in expect buffer: %q", maskChar, buf)
+					}
+				}
+			},
+		),
+	)
+	if err != nil {
+		t.Errorf("Expected no error but got'%s'", err)
+	}
+	defer testCloser(t, c)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.ExpectString("What is *+*?")
+		c.SendLine("2")
+		c.ExpectString("What is Netfli* backwards?")
+		c.SendLine("xilfteN")
+		c.ExpectEOF()
+	}()
+
+	err = Prompt(c.Tty(), c.Tty())
+	if err != nil {
+		t.Errorf("Expected no error but got '%s'", err)
+	}
+
+	testCloser(t, c.Tty())
+	wg.Wait()
+}

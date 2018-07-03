@@ -49,6 +49,7 @@ type ConsoleOpts struct {
 	Closers         []io.Closer
 	ExpectObservers []ExpectObserver
 	SendObservers   []SendObserver
+	ExpectFilters   []ExpectFilter
 }
 
 // ExpectObserver provides an interface for a function callback that will
@@ -64,6 +65,10 @@ type ExpectObserver func(matcher Matcher, buf string, err error)
 // num is the number of bytes actually sent.
 // err is the error that might have occured.  May be nil.
 type SendObserver func(msg string, num int, err error)
+
+// ExpectFilter provides an interface to convert the contents in one
+// input stream to another input stream.
+type ExpectFilter func(raw io.Reader) io.Reader
 
 // WithStdout adds writers that Console duplicates writes to, similar to the
 // Unix tee(1) command.
@@ -121,6 +126,16 @@ func WithSendObserver(observers ...SendObserver) ConsoleOpt {
 	}
 }
 
+// WithExpectFilter adds an ExpectFilter to allow processing the output stream from
+// the expected subprocess.  For example you could decompress the output or strip
+// ANSI escape suqences to make the Expect statements easier to manage.
+func WithExpectFilter(filters ...ExpectFilter) ConsoleOpt {
+	return func(opts *ConsoleOpts) error {
+		opts.ExpectFilters = append(opts.ExpectFilters, filters...)
+		return nil
+	}
+}
+
 // NewConsole returns a new Console with the given options.
 func NewConsole(opts ...ConsoleOpt) (*Console, error) {
 	options := ConsoleOpts{
@@ -139,11 +154,16 @@ func NewConsole(opts ...ConsoleOpt) (*Console, error) {
 	}
 	closers := append(options.Closers, pts, ptm)
 
+	var filtered io.Reader = ptm
+	for _, filter := range options.ExpectFilters {
+		filtered = filter(filtered)
+	}
+
 	c := &Console{
 		opts:       options,
 		ptm:        ptm,
 		pts:        pts,
-		runeReader: bufio.NewReaderSize(ptm, utf8.UTFMax),
+		runeReader: bufio.NewReaderSize(filtered, utf8.UTFMax),
 		closers:    closers,
 	}
 

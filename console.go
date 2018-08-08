@@ -21,6 +21,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"time"
 	"unicode/utf8"
 
 	"github.com/kr/pty"
@@ -31,11 +32,12 @@ import (
 // input back on it's tty. Console can also multiplex other sources of input
 // and multiplex its output to other writers.
 type Console struct {
-	opts       ConsoleOpts
-	ptm        *os.File
-	pts        *os.File
-	runeReader *bufio.Reader
-	closers    []io.Closer
+	opts            ConsoleOpts
+	ptm             *os.File
+	pts             *os.File
+	passthroughPipe *PassthroughPipe
+	runeReader      *bufio.Reader
+	closers         []io.Closer
 }
 
 // ConsoleOpt allows setting Console options.
@@ -49,6 +51,7 @@ type ConsoleOpts struct {
 	Closers         []io.Closer
 	ExpectObservers []ExpectObserver
 	SendObservers   []SendObserver
+	ReadTimeout     *time.Duration
 }
 
 // ExpectObserver provides an interface for a function callback that will
@@ -121,6 +124,14 @@ func WithSendObserver(observers ...SendObserver) ConsoleOpt {
 	}
 }
 
+// WithDefaultTimeout sets a default read timeout during Expect statements.
+func WithDefaultTimeout(timeout time.Duration) ConsoleOpt {
+	return func(opts *ConsoleOpts) error {
+		opts.ReadTimeout = &timeout
+		return nil
+	}
+}
+
 // NewConsole returns a new Console with the given options.
 func NewConsole(opts ...ConsoleOpt) (*Console, error) {
 	options := ConsoleOpts{
@@ -139,21 +150,28 @@ func NewConsole(opts ...ConsoleOpt) (*Console, error) {
 	}
 	closers := append(options.Closers, pts, ptm)
 
+	passthroughPipe, err := NewPassthroughPipe(ptm)
+	if err != nil {
+		return nil, err
+	}
+	closers = append(options.Closers, passthroughPipe)
+
 	c := &Console{
-		opts:       options,
-		ptm:        ptm,
-		pts:        pts,
-		runeReader: bufio.NewReaderSize(ptm, utf8.UTFMax),
-		closers:    closers,
+		opts:            options,
+		ptm:             ptm,
+		pts:             pts,
+		passthroughPipe: passthroughPipe,
+		runeReader:      bufio.NewReaderSize(passthroughPipe, utf8.UTFMax),
+		closers:         closers,
 	}
 
-	for _, r := range options.Stdins {
-		go func(r io.Reader) {
-			_, err := io.Copy(c, r)
+	for _, stdin := range options.Stdins {
+		go func(stdin io.Reader) {
+			_, err := io.Copy(c, stdin)
 			if err != nil {
 				c.Logf("failed to copy stdin: %s", err)
 			}
-		}(r)
+		}(stdin)
 	}
 
 	return c, nil

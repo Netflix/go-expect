@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 var (
@@ -65,6 +66,10 @@ func Prompt(in io.Reader, out io.Writer) error {
 	return nil
 }
 
+func newTestConsole(t *testing.T, opts ...ConsoleOpt) (*Console, error) {
+	return NewTestConsole(t, append(opts, expectNoError(t), sendNoError(t), WithDefaultTimeout(time.Second))...)
+}
+
 func expectNoError(t *testing.T) ConsoleOpt {
 	return WithExpectObserver(
 		func(matcher Matcher, buf string, err error) {
@@ -100,7 +105,7 @@ func testCloser(t *testing.T, closer io.Closer) {
 func TestExpectf(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewTestConsole(t)
+	c, err := newTestConsole(t)
 	if err != nil {
 		t.Errorf("Expected no error but got'%s'", err)
 	}
@@ -128,7 +133,7 @@ func TestExpectf(t *testing.T) {
 func TestExpect(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewTestConsole(t, expectNoError(t), sendNoError(t))
+	c, err := newTestConsole(t)
 	if err != nil {
 		t.Errorf("Expected no error but got'%s'", err)
 	}
@@ -157,7 +162,7 @@ func TestExpect(t *testing.T) {
 func TestExpectOutput(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewTestConsole(t, expectNoError(t), sendNoError(t))
+	c, err := newTestConsole(t)
 	if err != nil {
 		t.Errorf("Expected no error but got'%s'", err)
 	}
@@ -180,6 +185,58 @@ func TestExpectOutput(t *testing.T) {
 	wg.Wait()
 }
 
+func TestExpectDefaultTimeout(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewTestConsole(t, WithDefaultTimeout(0))
+	if err != nil {
+		t.Errorf("Expected no error but got'%s'", err)
+	}
+	defer testCloser(t, c)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		Prompt(c.Tty(), c.Tty())
+	}()
+
+	_, err = c.ExpectString("What is 1+2?")
+	if err == nil || !strings.Contains(err.Error(), "i/o timeout") {
+		t.Errorf("Expected error to contain 'i/o timeout' but got '%s' instead", err)
+	}
+
+	// Close to unblock Prompt and wait for the goroutine to exit.
+	c.Tty().Close()
+	wg.Wait()
+}
+
+func TestExpectTimeout(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewTestConsole(t)
+	if err != nil {
+		t.Errorf("Expected no error but got'%s'", err)
+	}
+	defer testCloser(t, c)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		Prompt(c.Tty(), c.Tty())
+	}()
+
+	_, err = c.Expect(String("What is 1+2?"), WithTimeout(0))
+	if err == nil || !strings.Contains(err.Error(), "i/o timeout") {
+		t.Errorf("Expected error to contain 'i/o timeout' but got '%s' instead", err)
+	}
+
+	// Close to unblock Prompt and wait for the goroutine to exit.
+	c.Tty().Close()
+	wg.Wait()
+}
+
 func TestConsoleChain(t *testing.T) {
 	t.Parallel()
 
@@ -198,7 +255,7 @@ func TestConsoleChain(t *testing.T) {
 		c1.ExpectEOF()
 	}()
 
-	c2, err := NewTestConsole(t, WithStdin(c1.Tty()), WithStdout(c1.Tty()), expectNoError(t), sendNoError(t))
+	c2, err := newTestConsole(t, WithStdin(c1.Tty()), WithStdout(c1.Tty()))
 	if err != nil {
 		t.Errorf("Expected no error but got'%s'", err)
 	}

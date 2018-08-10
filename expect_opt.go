@@ -21,10 +21,19 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // ExpectOpt allows settings Expect options.
 type ExpectOpt func(*ExpectOpts) error
+
+// WithTimeout sets a read timeout for an Expect statement.
+func WithTimeout(timeout time.Duration) ExpectOpt {
+	return func(opts *ExpectOpts) error {
+		opts.ReadTimeout = &timeout
+		return nil
+	}
+}
 
 // ConsoleCallback is a callback function to execute if a match is found for
 // the chained matcher.
@@ -52,7 +61,8 @@ func (eo ExpectOpt) Then(f ConsoleCallback) ExpectOpt {
 
 // ExpectOpts provides additional options on Expect.
 type ExpectOpts struct {
-	Matchers []Matcher
+	Matchers    []Matcher
+	ReadTimeout *time.Duration
 }
 
 // Match sequentially calls Match on all matchers in ExpectOpts and returns the

@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"time"
 	"unicode/utf8"
 )
 
@@ -58,6 +59,11 @@ func (c *Console) Expect(opts ...ExpectOpt) (string, error) {
 	writer := io.MultiWriter(append(c.opts.Stdouts, buf)...)
 	runeWriter := bufio.NewWriterSize(writer, utf8.UTFMax)
 
+	readTimeout := c.opts.ReadTimeout
+	if options.ReadTimeout != nil {
+		readTimeout = options.ReadTimeout
+	}
+
 	var matcher Matcher
 	var err error
 
@@ -68,6 +74,13 @@ func (c *Console) Expect(opts ...ExpectOpt) (string, error) {
 	}()
 
 	for {
+		if readTimeout != nil {
+			err = c.passthroughPipe.SetReadDeadline(time.Now().Add(*readTimeout))
+			if err != nil {
+				return buf.String(), err
+			}
+		}
+
 		var r rune
 		r, _, err = c.runeReader.ReadRune()
 		if err != nil {

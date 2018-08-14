@@ -67,16 +67,21 @@ func Prompt(in io.Reader, out io.Writer) error {
 }
 
 func newTestConsole(t *testing.T, opts ...ConsoleOpt) (*Console, error) {
-	return NewTestConsole(t, append(opts, expectNoError(t), sendNoError(t), WithDefaultTimeout(time.Second))...)
+	opts = append([]ConsoleOpt{
+		expectNoError(t),
+		sendNoError(t),
+		WithDefaultTimeout(time.Second),
+	}, opts...)
+	return NewTestConsole(t, opts...)
 }
 
 func expectNoError(t *testing.T) ConsoleOpt {
 	return WithExpectObserver(
 		func(matcher Matcher, buf string, err error) {
 			if matcher == nil && err != nil {
-				t.Errorf("Error occured while matching %q: %s\n%s", buf, err, string(debug.Stack()))
+				t.Fatalf("Error occured while matching %q: %s\n%s", buf, err, string(debug.Stack()))
 			} else if err != nil {
-				t.Errorf("Failed to find %v in %q: %s\n%s", matcher.Criteria(), buf, err, string(debug.Stack()))
+				t.Fatalf("Failed to find %v in %q: %s\n%s", matcher.Criteria(), buf, err, string(debug.Stack()))
 			}
 		},
 	)
@@ -86,10 +91,10 @@ func sendNoError(t *testing.T) ConsoleOpt {
 	return WithSendObserver(
 		func(msg string, n int, err error) {
 			if err != nil {
-				t.Errorf("Failed to send %q: %s\n%s", msg, err, string(debug.Stack()))
+				t.Fatalf("Failed to send %q: %s\n%s", msg, err, string(debug.Stack()))
 			}
 			if len(msg) != n {
-				t.Errorf("Only sent %d of %d bytes for %q\n%s", n, len(msg), msg, string(debug.Stack()))
+				t.Fatalf("Only sent %d of %d bytes for %q\n%s", n, len(msg), msg, string(debug.Stack()))
 			}
 		},
 	)
@@ -234,6 +239,36 @@ func TestExpectTimeout(t *testing.T) {
 
 	// Close to unblock Prompt and wait for the goroutine to exit.
 	c.Tty().Close()
+	wg.Wait()
+}
+
+func TestExpectDefaultTimeoutOverride(t *testing.T) {
+	t.Parallel()
+
+	c, err := newTestConsole(t, WithDefaultTimeout(100*time.Millisecond))
+	if err != nil {
+		t.Errorf("Expected no error but got'%s'", err)
+	}
+	defer testCloser(t, c)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		err = Prompt(c.Tty(), c.Tty())
+		if err != nil {
+			t.Errorf("Expected no error but got '%s'", err)
+		}
+		time.Sleep(200 * time.Millisecond)
+		c.Tty().Close()
+	}()
+
+	c.ExpectString("What is 1+1?")
+	c.SendLine("2")
+	c.ExpectString("What is Netflix backwards?")
+	c.SendLine("xilfteN")
+	c.Expect(EOF, PTSClosed, WithTimeout(time.Second))
+
 	wg.Wait()
 }
 

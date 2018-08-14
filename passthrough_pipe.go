@@ -40,6 +40,11 @@ func NewPassthroughPipe(reader io.Reader) (*PassthroughPipe, error) {
 	go func() {
 		defer close(errC)
 		_, readerErr := io.Copy(pipeWriter, reader)
+		if readerErr == nil {
+			// io.Copy reads from reader until EOF, and a successful Copy returns
+			// err == nil. We set it back to io.EOF to surface the error to Expect.
+			readerErr = io.EOF
+		}
 
 		// Closing the pipeWriter will unblock the pipeReader.Read.
 		err = pipeWriter.Close()
@@ -68,8 +73,14 @@ func (pp *PassthroughPipe) Read(p []byte) (n int, err error) {
 			return n, err
 		}
 
-		err = <-pp.errC
-		return n, err
+		// If the pipe is closed, this is the second time calling Read on
+		// PassthroughPipe, so just return the error from the os.Pipe io.Reader.
+		perr, ok := <-pp.errC
+		if !ok {
+			return n, err
+		}
+
+		return n, perr
 	}
 
 	return n, nil

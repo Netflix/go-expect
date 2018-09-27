@@ -194,6 +194,51 @@ func (rm *regexpMatcher) Criteria() interface{} {
 	return rm.re
 }
 
+// allMatcher fulfills the Matcher interface to match a group of ExpectOpt
+// against any value.
+type allMatcher struct {
+	options ExpectOpts
+}
+
+func (am *allMatcher) Match(v interface{}) bool {
+	var matchers []Matcher
+	for _, matcher := range am.options.Matchers {
+		if matcher.Match(v) {
+			continue
+		}
+		matchers = append(matchers, matcher)
+	}
+
+	am.options.Matchers = matchers
+	return len(matchers) == 0
+}
+
+func (am *allMatcher) Criteria() interface{} {
+	var criterias []interface{}
+	for _, matcher := range am.options.Matchers {
+		criterias = append(criterias, matcher.Criteria())
+	}
+	return criterias
+}
+
+// All adds an Expect condition to exit if the content read from Console's tty
+// matches all of the provided ExpectOpt, in any order.
+func All(expectOpts ...ExpectOpt) ExpectOpt {
+	return func(opts *ExpectOpts) error {
+		var options ExpectOpts
+		for _, opt := range expectOpts {
+			if err := opt(&options); err != nil {
+				return err
+			}
+		}
+
+		opts.Matchers = append(opts.Matchers, &allMatcher{
+			options: options,
+		})
+		return nil
+	}
+}
+
 // String adds an Expect condition to exit if the content read from Console's
 // tty contains any of the given strings.
 func String(strs ...string) ExpectOpt {

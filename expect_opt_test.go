@@ -314,3 +314,92 @@ func TestExpectOptThen(t *testing.T) {
 		})
 	}
 }
+
+func TestExpectOptAll(t *testing.T) {
+	tests := []struct {
+		title    string
+		opt      ExpectOpt
+		data     string
+		expected bool
+	}{
+		{
+			"No opts",
+			All(),
+			"Hello world",
+			true,
+		},
+		{
+			"Single string match",
+			All(String("Hello")),
+			"Hello world",
+			true,
+		},
+		{
+			"Single string no match",
+			All(String("Hello")),
+			"No match",
+			false,
+		},
+		{
+			"Ordered strings match",
+			All(String("Hello"), String("world")),
+			"Hello world",
+			true,
+		},
+		{
+			"Ordered strings not all match",
+			All(String("Hello"), String("world")),
+			"Hello",
+			false,
+		},
+		{
+			"Unordered strings",
+			All(String("world"), String("Hello")),
+			"Hello world",
+			true,
+		},
+		{
+			"Unordered strings not all match",
+			All(String("world"), String("Hello")),
+			"Hello",
+			false,
+		},
+		{
+			"Repeated strings match",
+			All(String("Hello"), String("Hello")),
+			"Hello world",
+			true,
+		},
+		{
+			"Mixed opts match",
+			All(String("Hello"), RegexpPattern(`wo[a-z]{1}ld`)),
+			"Hello woxld",
+			true,
+		},
+		{
+			"Mixed opts no match",
+			All(String("Hello"), RegexpPattern(`wo[a-z]{1}ld`)),
+			"Hello wo4ld",
+			false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.title, func(t *testing.T) {
+			var options ExpectOpts
+			err := test.opt(&options)
+			require.Nil(t, err)
+
+			buf := new(bytes.Buffer)
+			_, err = buf.WriteString(test.data)
+			require.Nil(t, err)
+
+			matcher := options.Match(buf)
+			if test.expected {
+				require.NotNil(t, matcher)
+			} else {
+				require.Nil(t, matcher)
+			}
+		})
+	}
+}

@@ -56,10 +56,11 @@ type ConsoleOpts struct {
 
 // ExpectObserver provides an interface for a function callback that will
 // be called after each Expect operation.
-// matcher will be the Matcher that matched the buffer in buf. May be nil.
+// matchers will be the list of active matchers when an error occurred,
+//   or a list of matchers that matched `buf` when err is nil.
 // buf is the captured output that was matched against.
-// err is error that might have occured. May be nil.
-type ExpectObserver func(matcher Matcher, buf string, err error)
+// err is error that might have occurred. May be nil.
+type ExpectObserver func(matchers []Matcher, buf string, err error)
 
 // SendObserver provides an interface for a function callback that will
 // be called after each Send operation.

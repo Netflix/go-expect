@@ -69,7 +69,11 @@ func (c *Console) Expect(opts ...ExpectOpt) (string, error) {
 
 	defer func() {
 		for _, observer := range c.opts.ExpectObservers {
-			observer(matcher, buf.String(), err)
+			if matcher != nil {
+				observer([]Matcher{matcher}, buf.String(), err)
+				return
+			}
+			observer(options.Matchers, buf.String(), err)
 		}
 	}()
 

@@ -77,11 +77,18 @@ func newTestConsole(t *testing.T, opts ...ConsoleOpt) (*Console, error) {
 
 func expectNoError(t *testing.T) ConsoleOpt {
 	return WithExpectObserver(
-		func(matcher Matcher, buf string, err error) {
-			if matcher == nil && err != nil {
-				t.Fatalf("Error occured while matching %q: %s\n%s", buf, err, string(debug.Stack()))
-			} else if err != nil {
-				t.Fatalf("Failed to find %v in %q: %s\n%s", matcher.Criteria(), buf, err, string(debug.Stack()))
+		func(matchers []Matcher, buf string, err error) {
+			if err == nil {
+				return
+			}
+			if len(matchers) == 0 {
+				t.Fatalf("Error occurred while matching %q: %s\n%s", buf, err, string(debug.Stack()))
+			} else {
+				var criteria []string
+				for _, matcher := range matchers {
+					criteria = append(criteria, fmt.Sprintf("%q", matcher.Criteria()))
+				}
+				t.Fatalf("Failed to find [%s] in %q: %s\n%s", strings.Join(criteria, ", "), buf, err, string(debug.Stack()))
 			}
 		},
 	)

@@ -22,6 +22,14 @@ jobs:
     - name: Test
       run: go test -v -covermode=count -coverprofile=coverage.out
 
+    - name: Upload coverage
+      uses: codecov/codecov-action@v1
+      with:
+        file: ./coverage.out
+        flags: unittests
+        fail_ci_if_error: true
+        verbose: true
+
     - name: Export unit tests artifact
       uses: actions/upload-artifact@v2
       with:

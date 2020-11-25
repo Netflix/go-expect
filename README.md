@@ -1,5 +1,7 @@
 # go-expect
 
+![Go](https://github.com/leozz37/go-expect/workflows/Go/badge.svg)
+[![codecov](https://codecov.io/gh/leozz37/go-expect/branch/master/graph/badge.svg?token=ZV4DeDXZ7g)](https://codecov.io/gh/leozz37/go-expect)
 [![Build Status](https://travis-ci.com/Netflix/go-expect.svg?branch=master)](https://travis-ci.com/Netflix/go-expect)
 [![GoDoc](https://godoc.org/github.com/Netflix/go-expect?status.svg)](https://godoc.org/github.com/Netflix/go-expect)
 [![NetflixOSS Lifecycle](https://img.shields.io/osslifecycle/Netflix/go-expect.svg)]()

@@ -155,7 +155,7 @@ func NewConsole(opts ...ConsoleOpt) (*Console, error) {
 	if err != nil {
 		return nil, err
 	}
-	closers = append(options.Closers, passthroughPipe)
+	closers = append(closers, passthroughPipe)
 
 	c := &Console{
 		opts:            options,

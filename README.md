@@ -60,7 +60,7 @@ func main() {
 
 ### `golang.org/x/crypto/ssh/terminal` example
 
-```
+```go
 package main
 
 import (

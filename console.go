@@ -24,7 +24,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/kr/pty"
+	"github.com/creack/pty"
 )
 
 // Console is an interface to automate input and output for interactive

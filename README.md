@@ -58,7 +58,7 @@ func main() {
 }
 ```
 
-### `golang.org/x/crypto/ssh/terminal` example
+### `golang.org/x/term` example
 
 ```go
 package main
@@ -66,13 +66,13 @@ package main
 import (
 	"fmt"
 
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 
 	expect "github.com/Netflix/go-expect"
 )
 
 func getPassword(fd int) string {
-	bytePassword, _ := terminal.ReadPassword(fd)
+	bytePassword, _ := term.ReadPassword(fd)
 
 	return string(bytePassword)
 }

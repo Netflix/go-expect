@@ -25,6 +25,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/creack/pty"
+	"github.com/muesli/cancelreader"
 )
 
 // Console is an interface to automate input and output for interactive
@@ -32,12 +33,12 @@ import (
 // input back on it's tty. Console can also multiplex other sources of input
 // and multiplex its output to other writers.
 type Console struct {
-	opts            ConsoleOpts
-	ptm             *os.File
-	pts             *os.File
-	passthroughPipe *PassthroughPipe
-	runeReader      *bufio.Reader
-	closers         []io.Closer
+	opts         ConsoleOpts
+	ptm          *os.File
+	pts          *os.File
+	cancelReader cancelreader.CancelReader
+	runeReader   *bufio.Reader
+	closers      []io.Closer
 }
 
 // ConsoleOpt allows setting Console options.
@@ -151,19 +152,16 @@ func NewConsole(opts ...ConsoleOpt) (*Console, error) {
 	}
 	closers := append(options.Closers, pts, ptm)
 
-	passthroughPipe, err := NewPassthroughPipe(ptm)
+	c := &Console{
+		opts:    options,
+		ptm:     ptm,
+		pts:     pts,
+		closers: closers,
+	}
+
+	err = c.reset()
 	if err != nil {
 		return nil, err
-	}
-	closers = append(closers, passthroughPipe)
-
-	c := &Console{
-		opts:            options,
-		ptm:             ptm,
-		pts:             pts,
-		passthroughPipe: passthroughPipe,
-		runeReader:      bufio.NewReaderSize(passthroughPipe, utf8.UTFMax),
-		closers:         closers,
 	}
 
 	for _, stdin := range options.Stdins {
@@ -176,6 +174,16 @@ func NewConsole(opts ...ConsoleOpt) (*Console, error) {
 	}
 
 	return c, nil
+}
+
+func (c *Console) reset() error {
+	var err error
+	c.cancelReader, err = cancelreader.NewReader(c.ptm)
+	if err != nil {
+		return err
+	}
+	c.runeReader = bufio.NewReaderSize(c.cancelReader, utf8.UTFMax)
+	return nil
 }
 
 // Tty returns Console's pts (slave part of a pty). A pseudoterminal, or pty is

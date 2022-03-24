@@ -17,10 +17,19 @@ package expect
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"time"
 	"unicode/utf8"
+
+	"github.com/muesli/cancelreader"
+)
+
+var (
+	// ErrTimeout is returned if expect read timeout is reached before
+	// the expect condition is reached.
+	ErrTimeout = errors.New("read timeout")
 )
 
 // Expectf reads from the Console's tty until the provided formatted string
@@ -78,16 +87,33 @@ func (c *Console) Expect(opts ...ExpectOpt) (string, error) {
 	}()
 
 	for {
+		var readCh chan struct{}
 		if readTimeout != nil {
-			err = c.passthroughPipe.SetReadDeadline(time.Now().Add(*readTimeout))
-			if err != nil {
-				return buf.String(), err
-			}
+			readCh = make(chan struct{})
+			go func() {
+				timer := time.NewTimer(*readTimeout)
+				select {
+				case <-readCh:
+					timer.Stop()
+				case <-timer.C:
+					c.cancelReader.Cancel()
+				}
+			}()
 		}
 
 		var r rune
 		r, _, err = c.runeReader.ReadRune()
+		if readCh != nil {
+			close(readCh)
+		}
 		if err != nil {
+			if errors.Is(err, cancelreader.ErrCanceled) {
+				rerr := c.reset()
+				if rerr != nil {
+					return buf.String(), rerr
+				}
+				err = ErrTimeout
+			}
 			matcher = options.Match(err)
 			if matcher != nil {
 				err = nil

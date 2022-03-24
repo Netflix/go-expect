@@ -25,7 +25,6 @@ import (
 	"os/exec"
 	"runtime/debug"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -123,10 +122,9 @@ func TestExpectf(t *testing.T) {
 	}
 	defer testCloser(t, c)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	done := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(done)
 		c.Expectf("What is 1+%d?", 1)
 		c.SendLine("2")
 		c.Expectf("What is %s backwards?", "Netflix")
@@ -139,7 +137,7 @@ func TestExpectf(t *testing.T) {
 		t.Errorf("Expected no error but got '%s'", err)
 	}
 	testCloser(t, c.Tty())
-	wg.Wait()
+	waitTestEnd(t, done)
 }
 
 func TestExpect(t *testing.T) {
@@ -151,10 +149,9 @@ func TestExpect(t *testing.T) {
 	}
 	defer testCloser(t, c)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	done := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(done)
 		c.ExpectString("What is 1+1?")
 		c.SendLine("2")
 		c.ExpectString("What is Netflix backwards?")
@@ -168,7 +165,15 @@ func TestExpect(t *testing.T) {
 	}
 	// close the pts so we can expect EOF
 	testCloser(t, c.Tty())
-	wg.Wait()
+	waitTestEnd(t, done)
+}
+
+func waitTestEnd(t *testing.T, done <-chan struct{}) {
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("Expected test to end within 3s")
+	}
 }
 
 func TestExpectOutput(t *testing.T) {
@@ -180,10 +185,9 @@ func TestExpectOutput(t *testing.T) {
 	}
 	defer testCloser(t, c)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	done := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(done)
 		c.ExpectString("What is 1+1?")
 		c.SendLine("3")
 		c.ExpectEOF()
@@ -194,7 +198,7 @@ func TestExpectOutput(t *testing.T) {
 		t.Errorf("Expected error '%s' but got '%s' instead", ErrWrongAnswer, err)
 	}
 	testCloser(t, c.Tty())
-	wg.Wait()
+	waitTestEnd(t, done)
 }
 
 func TestExpectDefaultTimeout(t *testing.T) {
@@ -206,21 +210,20 @@ func TestExpectDefaultTimeout(t *testing.T) {
 	}
 	defer testCloser(t, c)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	done := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(done)
 		Prompt(c.Tty(), c.Tty())
 	}()
 
 	_, err = c.ExpectString("What is 1+2?")
-	if err == nil || !strings.Contains(err.Error(), "i/o timeout") {
-		t.Errorf("Expected error to contain 'i/o timeout' but got '%s' instead", err)
+	if err == nil || !errors.Is(err, ErrTimeout) {
+		t.Errorf("Expected error to be ErrTimeout but got '%s' instead", err)
 	}
 
 	// Close to unblock Prompt and wait for the goroutine to exit.
 	c.Tty().Close()
-	wg.Wait()
+	waitTestEnd(t, done)
 }
 
 func TestExpectTimeout(t *testing.T) {
@@ -232,21 +235,20 @@ func TestExpectTimeout(t *testing.T) {
 	}
 	defer testCloser(t, c)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	done := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(done)
 		Prompt(c.Tty(), c.Tty())
 	}()
 
 	_, err = c.Expect(String("What is 1+2?"), WithTimeout(0))
-	if err == nil || !strings.Contains(err.Error(), "i/o timeout") {
-		t.Errorf("Expected error to contain 'i/o timeout' but got '%s' instead", err)
+	if err == nil || !errors.Is(err, ErrTimeout) {
+		t.Errorf("Expected error to be ErrTimeout but got '%s' instead", err)
 	}
 
 	// Close to unblock Prompt and wait for the goroutine to exit.
 	c.Tty().Close()
-	wg.Wait()
+	waitTestEnd(t, done)
 }
 
 func TestExpectDefaultTimeoutOverride(t *testing.T) {
@@ -258,10 +260,9 @@ func TestExpectDefaultTimeoutOverride(t *testing.T) {
 	}
 	defer testCloser(t, c)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	done := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(done)
 		err = Prompt(c.Tty(), c.Tty())
 		if err != nil {
 			t.Errorf("Expected no error but got '%s'", err)
@@ -276,7 +277,7 @@ func TestExpectDefaultTimeoutOverride(t *testing.T) {
 	c.SendLine("xilfteN")
 	c.Expect(EOF, PTSClosed, WithTimeout(time.Second))
 
-	wg.Wait()
+	waitTestEnd(t, done)
 }
 
 func TestConsoleChain(t *testing.T) {
@@ -288,10 +289,9 @@ func TestConsoleChain(t *testing.T) {
 	}
 	defer testCloser(t, c1)
 
-	var wg1 sync.WaitGroup
-	wg1.Add(1)
+	done1 := make(chan struct{})
 	go func() {
-		defer wg1.Done()
+		defer close(done1)
 		c1.ExpectString("What is Netflix backwards?")
 		c1.SendLine("xilfteN")
 		c1.ExpectEOF()
@@ -303,10 +303,9 @@ func TestConsoleChain(t *testing.T) {
 	}
 	defer testCloser(t, c2)
 
-	var wg2 sync.WaitGroup
-	wg2.Add(1)
+	done2 := make(chan struct{})
 	go func() {
-		defer wg2.Done()
+		defer close(done2)
 		c2.ExpectString("What is 1+1?")
 		c2.SendLine("2")
 		c2.ExpectEOF()
@@ -318,10 +317,10 @@ func TestConsoleChain(t *testing.T) {
 	}
 
 	testCloser(t, c2.Tty())
-	wg2.Wait()
+	waitTestEnd(t, done2)
 
 	testCloser(t, c1.Tty())
-	wg1.Wait()
+	waitTestEnd(t, done1)
 }
 
 func TestEditor(t *testing.T) {
@@ -346,10 +345,9 @@ func TestEditor(t *testing.T) {
 	cmd.Stdout = c.Tty()
 	cmd.Stderr = c.Tty()
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	done := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(done)
 		c.Send("iHello world\x1b")
 		c.SendLine(":wq!")
 		c.ExpectEOF()
@@ -361,7 +359,7 @@ func TestEditor(t *testing.T) {
 	}
 
 	testCloser(t, c.Tty())
-	wg.Wait()
+	waitTestEnd(t, done)
 
 	data, err := ioutil.ReadFile(file.Name())
 	if err != nil {
